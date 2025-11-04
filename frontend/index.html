@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Finance Dashboard</title>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. Load React & ReactDOM -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+    <!-- 3. Load Babel (to use JSX in the browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 4. Load Firebase (App, Auth, Firestore) -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <!-- 5. Load Charting Libraries -->
+    <script src="https://unpkg.com/prop-types@15.7.2/prop-types.min.js" crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.8/Recharts.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- DESTRUCTURE LIBRARIES ---
+        const { useState, useEffect, useMemo, useCallback } = React;
+        const { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } = Recharts;
+
+        // --- CONFIGURATION ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyA_j1t63EnHswlrUBMb9mbF31JuBBBXPM4",
+          authDomain: "bca-final-demo.firebaseapp.com",
+          projectId: "bca-final-demo",
+          storageBucket: "bca-final-demo.firebasestorage.app",
+          messagingSenderId: "960165996729",
+          appId: "1:960165996729:web:33109b9b6c632510f91368"
+        };
+
+        const appId = firebaseConfig.projectId;
+        
+        let globalDb, globalAuth;
+        try {
+            const app = firebase.initializeApp(firebaseConfig);
+            globalDb = firebase.firestore(app);
+            globalAuth = firebase.auth(app);
+            firebase.firestore.setLogLevel('debug');
+        } catch (e) {
+            console.error("Firebase initialization failed:", e);
+        }
+        
+        // ===================================================================
+        //
+        // PASTE YOUR NGROK URL HERE (from Part 1, Step 4)
+        // It must be the 'https://' address
+        //
+        // ===================================================================
+        const BACKEND_API_URL = 'https://PASTE-YOUR-NGROK-URL-HERE.ngrok.io/process-invoice';
+        
+        // Function to call the real Python/Flask backend
+        const callProcessInvoiceAPI = async (file) => {
+            const formData = new FormData();
+            formData.append('invoiceFile', file);
+            // We remove /process-invoice from the end because it's already in the URL
+            const response = await fetch(BACKEND_API_URL, { method: 'POST', body: formData });
+            if (!response.ok) {
+                let errorDetail = 'Unknown server error.';
+                try {
+                    const errorJson = await response.json();
+                    errorDetail = errorJson.message || errorDetail;
+                } catch (e) { errorDetail = response.statusText; }
+                throw new Error(`API failed with status ${response.status}: ${errorDetail}`);
+            }
+            const result = await response.json();
+            if (result.status === "Error") { throw new Error(result.message); }
+            return result.extractedData;
+        };
+        
+        // --- HELPER FUNCTIONS & COMPONENTS ---
+
+        const InputField = ({ label, name, type = "text", value, onChange, required = false, as = "input" }) => {
+            const InputComponent = as;
+            return (
+                <div>
+                    <label htmlFor={name} className="block text-sm font-medium text-gray-700">{label}</label>
+                    <InputComponent
+                        type={type} name={name} id={name} value={value} onChange={onChange} required={required}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        rows={as === "textarea" ? 3 : undefined}
+                    />
+                </div>
+            );
+        };
+        
+        const AuthInput = ({type, placeholder, value, onChange, name}) => (
+             <div>
+                <label htmlFor={name} className="sr-only">{placeholder}</label>
+                <input
+                    id={name} name={name} type={type} value={value} onChange={onChange} required
+                    className="appearance-none rounded-md relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                    placeholder={placeholder}
+                />
+            </div>
+        );
+        
+        const StatCard = ({ title, value, description, colorClass = "text-indigo-600" }) => (
+            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                <p className="text-sm font-medium text-gray-500 truncate">{title}</p>
+                <p className={`mt-1 text-3xl font-semibold ${colorClass}`}>{value}</p>
+                {description && <p className="text-sm text-gray-400 mt-1">{description}</p>}
+            </div>
+        );
+        
+        // --- DATE & FORMATTING HELPERS ---
+        const formatCurrency = (amount) => {
+             return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount || 0);
+        };
+        
+        const formatDate = (date) => {
+            if (!date) return 'N/A';
+            const d = date.toDate ? date.toDate() : new Date(date);
+            if (isNaN(d)) return 'Invalid Date';
+            return d.toLocaleDateString('en-GB'); // dd/mm/yyyy
+        };
+        
+        const formatTimestamp = (timestamp) => {
+            if (!timestamp) return 'N/A';
+            const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return d.toLocaleString('en-GB');
+        };
+
+        const getAgingCategory = (dueDate, status) => {
+            if (status === 'Approved' || status === 'Rejected') {
+                return { text: 'Closed', days: 0, color: 'text-gray-500' };
+            }
+            const today = new Date();
+            const due = new Date(dueDate);
+            if (isNaN(due)) return { text: 'N/A', days: 0, color: 'text-gray-500' };
+            today.setHours(0, 0, 0, 0);
+            due.setHours(0, 0, 0, 0);
+            const diffTime = today.getTime() - due.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays <= 0) return { text: 'Current', days: 0, color: 'text-green-600' };
+            if (diffDays <= 30) return { text: `Overdue ${diffDays}d`, days: diffDays, color: 'text-yellow-600' };
+            if (diffDays <= 60) return { text: `Overdue ${diffDays}d`, days: diffDays, color: 'text-orange-600' };
+            return { text: `Overdue ${diffDays}d`, days: diffDays, color: 'text-red-600 font-bold' };
+        };
+        
+        // --- MODAL COMPONENTS ---
+
+        const DeleteModal = ({ isOpen, onClose, onConfirm, invoice, isDeleting }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 m-4 max-w-sm w-full border border-gray-200">
+                        <h3 className="text-2xl font-bold text-gray-900">Delete Invoice?</h3>
+                        <p className="mt-3 text-gray-600">Are you sure you want to delete this invoice?</p>
+                        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mt-4 text-sm">
+                            <p className="font-semibold text-indigo-800">{invoice?.vendorName || 'Unknown Vendor'}</p>
+                            <p className="text-indigo-700">Inv #: {invoice?.invoiceNumber || 'N/A'}</p>
+                            <p className="text-indigo-700">Amount: <span className="font-bold">{formatCurrency(invoice?.totalAmount || 0)}</span></p>
+                        </div>
+                        <div className="mt-6 flex justify-end space-x-3">
+                            <button type="button" onClick={onClose} disabled={isDeleting} className="px-5 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 transition duration-150 font-medium">Cancel</button>
+                            <button type="button" onClick={onConfirm} disabled={isDeleting} className="px-5 py-2 rounded-lg text-white bg-red-600 hover:bg-red-700 transition duration-150 font-medium shadow-md hover:shadow-lg">
+                                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const EditModal = ({ isOpen, onClose, onSave, invoice, isUpdating, user }) => {
+            const [formData, setFormData] = useState({});
+            const [lineItems, setLineItems] = useState([]);
+
+            useEffect(() => {
+                if (invoice) {
+                    setFormData({
+                        vendorName: invoice.vendorName || '',
+                        invoiceNumber: invoice.invoiceNumber || '',
+                        invoiceDate: new Date(invoice.invoiceDate).toISOString().split('T')[0],
+                        dueDate: new Date(invoice.dueDate).toISOString().split('T')[0],
+                        subtotal: invoice.subtotal || 0,
+                        tax: invoice.tax || 0,
+                        totalAmount: invoice.totalAmount || 0,
+                        currency: invoice.currency || 'INR',
+                    });
+                    setLineItems(invoice.lineItems || []);
+                }
+            }, [invoice]);
+
+            if (!isOpen || !invoice) return null;
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+            
+            const handleLineItemChange = (index, e) => {
+                const { name, value } = e.target;
+                const updatedItems = [...lineItems];
+                updatedItems[index][name] = value;
+                setLineItems(updatedItems);
+            };
+            
+            const addLineItem = () => {
+                setLineItems([...lineItems, { description: '', quantity: 1, unitPrice: 0, total: 0 }]);
+            };
+            
+            const removeLineItem = (index) => {
+                const updatedItems = lineItems.filter((_, i) => i !== index);
+                setLineItems(updatedItems);
+            };
+
+            const handleSave = () => {
+                const dataToSave = {
+                    ...formData,
+                    invoiceDate: new Date(formData.invoiceDate),
+                    dueDate: new Date(formData.dueDate),
+                    subtotal: parseFloat(formData.subtotal) || 0,
+                    tax: parseFloat(formData.tax) || 0,
+                    totalAmount: parseFloat(formData.totalAmount) || 0,
+                    lineItems: lineItems,
+                };
+                onSave(invoice.id, dataToSave);
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 m-4 max-w-3xl w-full border border-gray-200 max-h-screen overflow-y-auto">
+                        <h3 className="text-2xl font-bold text-gray-900">Invoice Detail / Review Page</h3>
+                        <p className="mt-1 text-sm text-gray-600">Correct the AI-extracted data. All fields are editable.</p>
+                        
+                        <div className="mt-4 bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm">
+                            <p><strong>Confidence:</strong> <span className={`font-medium ${invoice.confidenceScore > 0.7 ? 'text-green-600' : 'text-yellow-600'}`}>{(invoice.confidenceScore * 100).toFixed(0)}%</span></p>
+                            <p className="mt-1"><strong>AI Rationale:</strong> <span className="text-gray-700 italic">"{invoice.rationale}"</span></p>
+                        </div>
+                        
+                        <div className="mt-6 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <InputField label="Vendor Name" name="vendorName" value={formData.vendorName} onChange={handleChange} />
+                                <InputField label="Invoice #" name="invoiceNumber" value={formData.invoiceNumber} onChange={handleChange} />
+                                <InputField label="Currency" name="currency" value={formData.currency} onChange={handleChange} />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <InputField label="Invoice Date" name="invoiceDate" type="date" value={formData.invoiceDate} onChange={handleChange} />
+                                <InputField label="Due Date" name="dueDate" type="date" value={formData.dueDate} onChange={handleChange} />
+                            </div>
+                            
+                            <h4 className="text-lg font-semibold text-gray-700 pt-4">Line Items</h4>
+                            <div className="space-y-2 max-h-40 overflow-y-auto pr-2 border rounded-lg p-2 bg-gray-50">
+                                {lineItems.length === 0 && <p className="text-gray-500 p-2">No line items extracted.</p>}
+                                {lineItems.map((item, index) => (
+                                    <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                                        <input type="text" name="description" value={item.description} onChange={(e) => handleLineItemChange(index, e)} placeholder="Description" className="col-span-5 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="quantity" value={item.quantity} onChange={(e) => handleLineItemChange(index, e)} placeholder="Qty" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="unitPrice" value={item.unitPrice} onChange={(e) => handleLineItemChange(index, e)} placeholder="Unit Price" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="total" value={item.total} onChange={(e) => handleLineItemChange(index, e)} placeholder="Total" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <button onClick={() => removeLineItem(index)} className="text-red-500 hover:text-red-700">X</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={addLineItem} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">+ Add Line Item</button>
+                            
+                             <div className="grid grid-cols-3 gap-4 pt-4">
+                                <InputField label="Subtotal" name="subtotal" type="number" value={formData.subtotal} onChange={handleChange} />
+                                <InputField label="Tax" name="tax" type="number" value={formData.tax} onChange={handleChange} />
+                                <InputField label="Total Amount" name="totalAmount" type="number" value={formData.totalAmount} onChange={handleChange} />
+                             </div>
+                        </div>
+
+                        <div className="mt-8 flex justify-end space-x-3">
+                            <button type="button" onClick={onClose} disabled={isUpdating} className="px-5 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 transition duration-150 font-medium">Cancel</button>
+                            <button type="button" onClick={handleSave} disabled={isUpdating} className="px-5 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 font-medium shadow-md hover:shadow-lg">
+                                {isUpdating ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const AuditLogModal = ({ isOpen, onClose, invoice }) => {
+            if (!isOpen || !invoice) return null;
+            const sortedLog = invoice.auditLog ? [...invoice.auditLog].sort((a, b) => {
+                const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(0);
+                const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(0);
+                return dateB - dateA;
+            }) : [];
+            
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 m-4 max-w-lg w-full border border-gray-200">
+                        <h3 className="text-2xl font-bold text-gray-900">Audit History</h3>
+                        <p className="mt-1 text-sm text-gray-600">
+                            History for Inv #: <span className="font-medium text-gray-800">{invoice.invoiceNumber || 'N/A'}</span>
+                        </p>
+                        <div className="mt-6 max-h-80 overflow-y-auto space-y-4 pr-2">
+                            {sortedLog.length === 0 ? <p className="text-gray-500">No history found.</p> : (
+                                sortedLog.map((log, index) => (
+                                    <div key={index} className="flex items-start space-x-3">
+                                        <div className="flex-shrink-0">
+                                            <span className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                                                log.action === 'Uploaded' ? 'bg-blue-100 text-blue-600' :
+                                                log.action === 'Approved' ? 'bg-green-100 text-green-600' :
+                                                log.action === 'Rejected' ? 'bg-red-100 text-red-600' :
+                                                log.action === 'Edited' ? 'bg-yellow-100 text-yellow-600' :
+                                                'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {/* Simple icon based on action */}
+                                                {log.action === 'Uploaded' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>}
+                                                {log.action === 'Approved' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                {log.action === 'Rejected' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>}
+                                                {log.action === 'Edited' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
+                                            </span>
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-medium text-gray-900">{log.action} by <span className="font-normal text-gray-700">{log.user}</span></p>
+                                            <p className="text-sm text-gray-500">
+                                                {formatTimestamp(log.timestamp)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="mt-8 flex justify-end">
+                            <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-150 font-medium">Close</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        // --- 1. AUTHENTICATION PAGE ---
+        const AuthForm = ({ db, auth }) => {
+            const [isLogin, setIsLogin] = useState(true);
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [fullName, setFullName] = useState('');
+            const [username, setUsername] = useState('');
+            const [phoneNumber, setPhoneNumber] = useState('');
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+                if (!auth || !db) {
+                    setError("Firebase service is not initialized.");
+                    setLoading(false);
+                    return;
+                }
+                try {
+                    if (isLogin) {
+                        await auth.signInWithEmailAndPassword(email, password);
+                    } else {
+                        if (password !== confirmPassword) throw new Error("Passwords do not match.");
+                        if (password.length < 6) throw new Error("Password must be at least 6 characters long.");
+                        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                        if (userCredential.user) {
+                            const userRef = db.collection('users').doc(userCredential.user.uid);
+                            await userRef.set({
+                                email: email,
+                                fullName: fullName,
+                                username: username,
+                                phoneNumber: phoneNumber,
+                                role: 'Finance Reviewer', // Default role
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                    }
+                    // onAuthStateChanged will handle redirect
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+                    <div className="max-w-md w-full space-y-8">
+                        <div>
+                            <h2 className="mt-6 text-center text-3xl font-extrabold text-indigo-700">
+                                AI Finance Intelligence Platform
+                            </h2>
+                            <h3 className="mt-2 text-center text-xl font-bold text-gray-800">
+                                {isLogin ? 'Sign in to your account' : 'Create a new account'}
+                            </h3>
+                        </div>
+                        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+                            <div className="rounded-md shadow-sm -space-y-px">
+                                {!isLogin && (
+                                    <>
+                                        <AuthInput type="text" name="fullName" placeholder="Full Name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                                        <AuthInput type="text" name="username" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+                                        <AuthInput type="tel" name="phoneNumber" placeholder="Phone Number" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} />
+                                    </>
+                                )}
+                                <AuthInput type="email" name="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} />
+                                <AuthInput type="password" name="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                                {!isLogin && (
+                                    <AuthInput type="password" name="confirmPassword" placeholder="Confirm Password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+                                )}
+                            </div>
+                            {error && <p className="text-center text-sm text-red-600">{error}</p>}
+                            <div>
+                                <button type="submit" disabled={loading} className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300">
+                                    {loading ? 'Processing...' : (isLogin ? 'Sign in' : 'Create Account')}
+                                </button>
+                            </div>
+                        </form>
+                         <div className="text-sm text-center">
+                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">
+                                {isLogin ? 'Don\'t have an account? Sign up' : 'Already have an account? Sign in'}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        
+        // --- 2. DASHBOARD PAGE (Tenant Dashboard / Home) ---
+        const DashboardPage = ({ user, db, auth, onNavigate }) => {
+            const [invoices, setInvoices] = useState([]);
+            const [file, setFile] = useState(null);
+            const [uploadStatus, setUploadStatus] = useState('');
+            const [isProcessing, setIsProcessing] = useState(false);
+
+            useEffect(() => {
+                if (!db || !user?.uid) return;
+                const invoicesRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices');
+                const unsubscribe = invoicesRef.onSnapshot((snapshot) => {
+                    const fetchedInvoices = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        invoiceDate: doc.data().invoiceDate?.toDate ? doc.data().invoiceDate.toDate() : new Date(doc.data().invoiceDate),
+                        dueDate: doc.data().dueDate?.toDate ? doc.data().dueDate.toDate() : new Date(doc.data().dueDate),
+                    }));
+                    setInvoices(fetchedInvoices);
+                }, (error) => console.error("Firestore onSnapshot error:", error));
+                return () => unsubscribe();
+            }, [db, user]);
+
+            const { totalPayable, totalPending, totalOverdue, totalApproved } = useMemo(() => {
+                const pendingInvoices = invoices.filter(inv => inv.status === 'Pending');
+                const approvedInvoices = invoices.filter(inv => inv.status === 'Approved');
+                const totalPending = pendingInvoices.reduce((acc, inv) => acc + (inv.totalAmount || 0), 0);
+                const totalApproved = approvedInvoices.reduce((acc, inv) => acc + (inv.totalAmount || 0), 0);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const totalOverdue = pendingInvoices.reduce((acc, inv) => {
+                    const due = new Date(inv.dueDate);
+                    if (isNaN(due)) return acc;
+                    due.setHours(0, 0, 0, 0);
+                    if (due < today) return acc + (inv.totalAmount || 0);
+                    return acc;
+                }, 0);
+                return { totalPayable: totalPending, totalPending, totalOverdue, totalApproved };
+            }, [invoices]);
+
+            const vendorData = useMemo(() => {
+                const vendorMap = {};
+                invoices.filter(inv => inv.status === 'Approved' || inv.status === 'Pending').forEach(invoice => {
+                    const vendor = invoice.vendorName || 'Miscellaneous';
+                    vendorMap[vendor] = (vendorMap[vendor] || 0) + invoice.totalAmount;
+                });
+                return Object.entries(vendorMap)
+                    .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
+                    .sort((a, b) => b.value - a.value)
+                    .slice(0, 5);
+            }, [invoices]);
+            
+            const COLORS = ['#4f46e5', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+
+            const handleFileChange = (e) => {
+                setFile(e.target.files[0]);
+                setUploadStatus('');
+            };
+
+            const handleUpload = async () => {
+                if (!file) return setUploadStatus('Please select a file first.');
+                if (!db || !auth || !user?.uid) return setUploadStatus('Error: Database is not connected.');
+                setIsProcessing(true);
+                setUploadStatus(`Uploading ${file.name}...`);
+                try {
+                    setUploadStatus(`File uploading. Sending to AI for processing...`);
+                    const extractedData = await callProcessInvoiceAPI(file);
+                    const parsedDate = new Date(extractedData.invoiceDate);
+                    const parsedDueDate = new Date(extractedData.dueDate);
+                    if (isNaN(parsedDate.getTime()) || isNaN(parsedDueDate.getTime())) {
+                        throw new Error(`AI returned an invalid date.`);
+                    }
+                    const invoicesRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices');
+                    const newInvoice = {
+                        ...extractedData,
+                        fileName: file.name,
+                        uploadedBy: user.username || user.email,
+                        uploadDate: firebase.firestore.FieldValue.serverTimestamp(),
+                        invoiceDate: parsedDate, 
+                        dueDate: parsedDueDate,
+                        auditLog: [{
+                            action: 'Uploaded',
+                            user: user.username || user.email,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        }, {
+                            action: 'AI Extraction',
+                            user: 'AI (Gemini)',
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        }]
+                    };
+                    const docRef = await invoicesRef.add(newInvoice);
+                    setUploadStatus(`Success: Processed ${extractedData.vendorName}!`);
+                    setFile(null); 
+                    onNavigate(`#invoice/${docRef.id}`);
+                } catch (error) {
+                    console.error('Error during processing or saving:', error);
+                    setUploadStatus(`Error: ${error.message}. Is your Python server running?`);
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+            
+            return (
+                <div className="space-y-8">
+                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                        <h2 className="text-2xl font-semibold text-gray-800 mb-4">Upload Invoice (Single)</h2>
+                        <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+                            <input type="file" onChange={handleFileChange} accept=".pdf,.png,.jpg,.jpeg" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150" disabled={isProcessing} />
+                            <button onClick={handleUpload} disabled={!file || isProcessing} className={`w-full md:w-auto px-6 py-2 rounded-xl text-white font-medium shadow-md transition duration-200 ${!file || isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300'}`}>
+                                {isProcessing ? 'Processing...' : 'Send to AI for Extraction'}
+                            </button>
+                        </div>
+                        {uploadStatus && <p className={`mt-4 text-sm ${uploadStatus.startsWith('Error:') ? 'text-red-600' : 'text-green-600'}`}>{uploadStatus}</p>}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <StatCard title="Total Payable (Pending)" value={formatCurrency(totalPayable)} description="Total of all 'Pending' invoices" colorClass="text-yellow-600" />
+                         <StatCard title="Total Overdue (Pending)" value={formatCurrency(totalOverdue)} colorClass={totalOverdue > 0 ? "text-red-600" : "text-green-600"} />
+                        <StatCard title="Total Approved (Paid)" value={formatCurrency(totalApproved)} colorClass="text-green-600" />
+                        <StatCard title="Total Invoices" value={invoices.length} description="All time" />
+                    </div>
+
+                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                        <h3 className="text-xl font-semibold text-gray-800 mb-4">Payable Summary (Top 5 Vendors)</h3>
+                        <div style={{ width: '100%', height: 300 }}>
+                            <ResponsiveContainer>
+                                <PieChart>
+                                    <Pie data={vendorData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`} fontSize={13}>
+                                        {vendorData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Legend />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        
+        // --- 3. INVOICES LIST PAGE (REVIEW QUEUE) ---
+        const InvoicesListPage = ({ user, db, auth, onNavigate }) => {
+            const [invoices, setInvoices] = useState([]);
+            const [uploadStatus, setUploadStatus] = useState('');
+            const [filterStatus, setFilterStatus] = useState('All');
+            const [filterVendor, setFilterVendor] = useState('');
+            const [filterStartDate, setFilterStartDate] = useState('');
+            const [filterEndDate, setFilterEndDate] = useState('');
+            const [selectedInvoices, setSelectedInvoices] = useState(new Set());
+            const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+            
+            useEffect(() => {
+                if (!db || !user?.uid) return;
+                const invoicesRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices');
+                const unsubscribe = invoicesRef.orderBy("uploadDate", "desc").onSnapshot((snapshot) => {
+                    const fetchedInvoices = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        invoiceDate: doc.data().invoiceDate?.toDate ? doc.data().invoiceDate.toDate() : new Date(doc.data().invoiceDate),
+                        dueDate: doc.data().dueDate?.toDate ? doc.data().dueDate.toDate() : new Date(doc.data().dueDate),
+                    }));
+                    setInvoices(fetchedInvoices);
+                }, (error) => console.error("Firestore onSnapshot error:", error));
+                return () => unsubscribe();
+            }, [db, user]);
+            
+            const filteredInvoices = useMemo(() => {
+                const start = filterStartDate ? new Date(filterStartDate) : null;
+                const end = filterEndDate ? new Date(filterEndDate) : null;
+                if(start) start.setHours(0, 0, 0, 0);
+                if(end) end.setHours(23, 59, 59, 999);
+                
+                return invoices.filter(invoice => {
+                    const statusMatch = filterStatus === 'All' || invoice.status === filterStatus;
+                    const vendorMatch = !filterVendor || (invoice.vendorName && invoice.vendorName.toLowerCase().includes(filterVendor.toLowerCase()));
+                    const invoiceDate = new Date(invoice.invoiceDate);
+                    const startDateMatch = !start || invoiceDate >= start;
+                    const endDateMatch = !end || invoiceDate <= end;
+                    return statusMatch && vendorMatch && startDateMatch && endDateMatch;
+                });
+            }, [invoices, filterStatus, filterVendor, filterStartDate, filterEndDate]);
+            
+            const clearFilters = () => {
+                setFilterStatus('All');
+                setFilterVendor('');
+                setFilterStartDate('');
+                setFilterEndDate('');
+            };
+            
+            const getStatusClass = (status) => {
+                switch (status) {
+                    case 'Approved': return 'bg-green-100 text-green-800 border-green-200';
+                    case 'Pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                    case 'Rejected': return 'bg-red-100 text-red-800 border-red-200';
+                    default: return 'bg-gray-100 text-gray-800 border-gray-200';
+                }
+            };
+            
+            const getFilterButtonClass = (status, filterStatus) => {
+                const isActive = filterStatus === status;
+                let baseClasses = 'px-4 py-2 rounded-lg text-sm font-medium transition duration-150 ';
+                if (isActive) {
+                    switch (status) {
+                        case 'Pending': return baseClasses + 'bg-yellow-500 text-white shadow-md';
+                        case 'Approved': return baseClasses + 'bg-green-500 text-white shadow-md';
+                        case 'Rejected': return baseClasses + 'bg-red-500 text-white shadow-md';
+                        default: return baseClasses + 'bg-indigo-600 text-white shadow-md'; // 'All'
+                    }
+                } else {
+                    return baseClasses + 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50';
+                }
+            };
+            
+            const exportToCSV = () => {
+                if (filteredInvoices.length === 0) {
+                    setUploadStatus("Error: No data to export.");
+                    return;
+                }
+                const headers = ["Status", "Vendor", "Invoice #", "Invoice Date", "Due Date", "Amount (₹)", "Currency", "Uploaded By"];
+                const rows = filteredInvoices.map(inv => {
+                    const status = inv.status;
+                    const vendor = `"${inv.vendorName.replace(/"/g, '""')}"`;
+                    const invNum = `"${inv.invoiceNumber.replace(/"/g, '""')}"`;
+                    const invDate = formatDate(inv.invoiceDate);
+                    const dueDate = formatDate(inv.dueDate);
+                    const amount = inv.totalAmount;
+                    const currency = inv.currency;
+                    const uploadedBy = `"${inv.uploadedBy.replace(/"/g, '""')}"`;
+                    return [status, vendor, invNum, invDate, dueDate, amount, currency, uploadedBy].join(',');
+                });
+                const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.join('\n');
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `invoice_export_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(link); 
+                link.click();
+                document.body.removeChild(link);
+                setUploadStatus("Success: Exported data to CSV.");
+            };
+            
+            const handleSelectInvoice = (invoiceId) => {
+                setSelectedInvoices(prevSelected => {
+                    const newSelected = new Set(prevSelected);
+                    if (newSelected.has(invoiceId)) { newSelected.delete(invoiceId); } else { newSelected.add(invoiceId); }
+                    return newSelected;
+                });
+            };
+            
+            const handleSelectAll = () => {
+                if (selectedInvoices.size === filteredInvoices.length) { setSelectedInvoices(new Set()); } else { setSelectedInvoices(new Set(filteredInvoices.map(inv => inv.id))); }
+            };
+            
+            const addAuditLog = (batch, invoiceId, action) => {
+                const logEntry = { action: action, user: user.username || user.email, timestamp: firebase.firestore.FieldValue.serverTimestamp() };
+                const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                batch.update(invoiceRef, { auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
+            };
+
+            const handleBulkApprove = async () => {
+                if (selectedInvoices.size === 0 || !db) return;
+                setIsBulkUpdating(true);
+                setUploadStatus(`Approving ${selectedInvoices.size} invoices...`);
+                try {
+                    const batch = db.batch();
+                    selectedInvoices.forEach(invoiceId => {
+                        const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                        batch.update(invoiceRef, { status: 'Approved' });
+                        addAuditLog(batch, invoiceId, 'Approved');
+                    });
+                    await batch.commit();
+                    setUploadStatus(`Successfully approved ${selectedInvoices.size} invoices.`);
+                    setSelectedInvoices(new Set());
+                } catch (error) {
+                    console.error("Error during bulk approve:", error);
+                    setUploadStatus(`Error: ${error.message}`);
+                } finally {
+                    setIsBulkUpdating(false);
+                }
+            };
+            
+            return (
+                <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200 overflow-x-auto">
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-4 space-y-3 md:space-y-0">
+                        <h3 className="text-xl font-semibold text-gray-800">Review Queue & Invoice List</h3>
+                        <div className="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-3">
+                            <div className="flex space-x-2 flex-wrap justify-center">
+                                <button onClick={() => setFilterStatus('All')} className={getFilterButtonClass('All', filterStatus)}>All</button>
+                                <button onClick={() => setFilterStatus('Pending')} className={getFilterButtonClass('Pending', filterStatus)}>Pending</button>
+                                <button onClick={() => setFilterStatus('Approved')} className={getFilterButtonClass('Approved', filterStatus)}>Approved</button>
+                                <button onClick={() => setFilterStatus('Rejected')} className={getFilterButtonClass('Rejected', filterStatus)}>Rejected</button>
+                            </div>
+                            <button onClick={exportToCSV} className="w-full md:w-auto px-4 py-2 rounded-lg text-sm font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 transition duration-150 flex items-center justify-center space-x-2">
+                                <span>Export CSV</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-3 mb-4 p-4 bg-gray-50 rounded-lg border">
+                        <input type="text" placeholder="Filter by Vendor..." value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)} className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                        <label className="text-sm font-medium text-gray-700">From:</label>
+                        <input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="w-full md:w-auto px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                        <label className="text-sm font-medium text-gray-700">To:</label>
+                        <input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="w-full md:w-auto px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                        <button onClick={clearFilters} className="px-3 py-2 rounded-md text-sm text-gray-700 bg-gray-200 hover:bg-gray-300">Clear</button>
+                    </div>
+                    
+                    {selectedInvoices.size > 0 && (
+                        <div className="mb-4 p-3 bg-indigo-100 border border-indigo-200 rounded-lg flex items-center justify-between">
+                            <span className="text-sm font-medium text-indigo-800">{selectedInvoices.size} invoice(s) selected</span>
+                            <button
+                                onClick={handleBulkApprove}
+                                disabled={isBulkUpdating}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-400"
+                            >
+                                {isBulkUpdating ? 'Approving...' : 'Bulk Approve'}
+                            </button>
+                        </div>
+                    )}
+
+                    {uploadStatus && <p className={`mb-4 text-sm ${uploadStatus.startsWith('Error:') ? 'text-red-600' : 'text-green-600'}`}>{uploadStatus}</p>}
+
+                    <div className="min-w-full">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b-2 border-gray-200">
+                                    <th className="p-3">
+                                        <input type="checkbox" className="rounded" checked={filteredInvoices.length > 0 && selectedInvoices.size === filteredInvoices.length} onChange={handleSelectAll} />
+                                    </th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Status</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Vendor</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Amount</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Invoice #</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Date</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Due Date</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Aging</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Uploaded By</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredInvoices.length === 0 && (
+                                    <tr><td colSpan="10" className="p-4 text-center text-gray-500">No invoices found.</td></tr>
+                                )}
+                                {filteredInvoices.map((invoice) => {
+                                    const aging = getAgingCategory(invoice.dueDate, invoice.status);
+                                    return (
+                                        <tr key={invoice.id} className={`hover:bg-gray-50 ${selectedInvoices.has(invoice.id) ? 'bg-indigo-50' : ''}`}>
+                                            <td className="p-3">
+                                                <input type="checkbox" className="rounded" checked={selectedInvoices.has(invoice.id)} onChange={() => handleSelectInvoice(invoice.id)} />
+                                            </td>
+                                            <td className="p-3"><span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusClass(invoice.status)}`}>{invoice.status}</span></td>
+                                            <td className="p-3 text-sm text-gray-800 font-medium">{invoice.vendorName}</td>
+                                            <td className="p-3 text-sm text-gray-800 font-medium">{formatCurrency(invoice.totalAmount)}</td>
+                                            <td className="p-3 text-sm text-gray-600 font-mono">{invoice.invoiceNumber}</td>
+                                            <td className="p-3 text-sm text-gray-600">{formatDate(invoice.invoiceDate)}</td>
+                                            <td className="p-3 text-sm text-gray-600">{formatDate(invoice.dueDate)}</td>
+                                            <td className={`p-3 text-sm font-medium ${aging.color}`}>{aging.text}</td>
+                                            <td className="p-3 text-sm text-gray-600 truncate" title={invoice.uploadedBy}>{invoice.uploadedBy ? invoice.uploadedBy.split('@')[0] : 'N/A'}</td>
+                                            <td className="p-3 text-sm text-gray-600 whitespace-nowrap">
+                                                <button onClick={() => onNavigate(`#invoice/${invoice.id}`)} className="px-3 py-1 rounded-md text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition"> Open </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+        
+        
+        // --- 4. INVOICE DETAIL PAGE (NEW) ---
+        const InvoiceDetailPage = ({ user, db, auth, invoiceId, onNavigate }) => {
+            const [invoice, setInvoice] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState('');
+            const [isUpdating, setIsUpdating] = useState(false);
+            const [formData, setFormData] = useState({});
+            const [lineItems, setLineItems] = useState([]);
+            const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+            const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+            const [isDeleting, setIsDeleting] = useState(false);
+
+            useEffect(() => {
+                if (!db || !user?.uid || !invoiceId) return;
+                const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                const unsubscribe = invoiceRef.onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const data = {
+                            id: doc.id,
+                            ...doc.data(),
+                            invoiceDate: doc.data().invoiceDate?.toDate ? doc.data().invoiceDate.toDate() : new Date(doc.data().invoiceDate),
+                            dueDate: doc.data().dueDate?.toDate ? doc.data().dueDate.toDate() : new Date(doc.data().dueDate),
+                        };
+                        setInvoice(data);
+                        setFormData({
+                            vendorName: data.vendorName || '',
+                            invoiceNumber: data.invoiceNumber || '',
+                            invoiceDate: new Date(data.invoiceDate).toISOString().split('T')[0],
+                            dueDate: new Date(data.dueDate).toISOString().split('T')[0],
+                            subtotal: data.subtotal || 0,
+                            tax: data.tax || 0,
+                            totalAmount: data.totalAmount || 0,
+                            currency: data.currency || 'INR',
+                        });
+                        setLineItems(data.lineItems || []);
+                    } else { setError("Invoice not found."); }
+                    setLoading(false);
+                }, (err) => { setError(err.message); setLoading(false); });
+                return () => unsubscribe();
+            }, [db, user, invoiceId]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+            
+            const handleLineItemChange = (index, e) => {
+                const { name, value } = e.target;
+                const updatedItems = [...lineItems];
+                updatedItems[index][name] = value;
+                setLineItems(updatedItems);
+            };
+            
+            const addLineItem = () => setLineItems([...lineItems, { description: '', quantity: 1, unitPrice: 0, total: 0 }]);
+            const removeLineItem = (index) => setLineItems(lineItems.filter((_, i) => i !== index));
+
+            const addAuditLog = (action, details = "") => {
+                const logEntry = {
+                    action: action, details: details, user: user.username || user.email,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                return invoiceRef.update({ auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
+            };
+
+            const handleSave = async (newStatus = null) => {
+                setIsUpdating(true);
+                setError('');
+                try {
+                    const dataToSave = {
+                        ...formData,
+                        invoiceDate: new Date(formData.invoiceDate),
+                        dueDate: new Date(formData.dueDate),
+                        subtotal: parseFloat(formData.subtotal) || 0,
+                        tax: parseFloat(formData.tax) || 0,
+                        totalAmount: parseFloat(formData.totalAmount) || 0,
+                        lineItems: lineItems,
+                    };
+                    if (newStatus) { dataToSave.status = newStatus; }
+                    const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                    await invoiceRef.update(dataToSave);
+                    if (newStatus) { await addAuditLog(newStatus); } 
+                    else { await addAuditLog("Edited"); }
+                    if (newStatus) { onNavigate('#invoices'); }
+                } catch (err) { setError(err.message);
+                } finally { setIsUpdating(false); }
+            };
+            
+            const handleDelete = async () => {
+                setIsDeleting(true);
+                setError('');
+                try {
+                    const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
+                    await invoiceRef.delete();
+                    setIsDeleteModalOpen(false);
+                    onNavigate('#invoices');
+                } catch(err) { setError(err.message); setIsDeleting(false); }
+            };
+            
+            if (loading) return <div className="p-8">Loading invoice details...</div>;
+            if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
+            if (!invoice) return null;
+
+            return (
+                <div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* --- LEFT: FILE PREVIEW --- */}
+                        <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                            <h3 className="text-xl font-semibold text-gray-800 mb-4">File Preview: {invoice.fileName}</h3>
+                            <div className="w-full h-96 bg-gray-200 rounded-lg overflow-auto border">
+                                <p className="p-4 text-gray-600 text-center">
+                                    File preview is not supported in this version to stay on the 100% free plan.
+                                    <br/><br/>
+                                    (This is where the image/PDF would be displayed).
+                                </p>
+                            </div>
+                            <div className="mt-6">
+                                <h4 className="text-lg font-semibold text-gray-700 mb-3">AI Metadata</h4>
+                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 space-y-2 text-sm">
+                                    <p><strong>Confidence:</strong> <span className={`font-medium ${invoice.confidenceScore > 0.7 ? 'text-green-600' : 'text-yellow-600'}`}>{(invoice.confidenceScore * 100).toFixed(0)}%</span></p>
+                                    <p><strong>AI Rationale:</strong> <span className="text-gray-700 italic">"{invoice.rationale}"</span></p>
+                                    <button onClick={() => setIsAuditModalOpen(true)} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">View Audit History</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* --- RIGHT: EDIT FORM --- */}
+                        <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200 space-y-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-2xl font-semibold text-gray-800">Review Invoice</h3>
+                                <span className={`px-3 py-1 text-sm font-semibold rounded-full border ${getStatusClass(invoice.status)}`}>
+                                    {invoice.status}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <InputField label="Vendor Name" name="vendorName" value={formData.vendorName} onChange={handleChange} />
+                                <InputField label="Invoice #" name="invoiceNumber" value={formData.invoiceNumber} onChange={handleChange} />
+                                <InputField label="Currency" name="currency" value={formData.currency} onChange={handleChange} />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <InputField label="Invoice Date" name="invoiceDate" type="date" value={formData.invoiceDate} onChange={handleChange} />
+                                <InputField label="Due Date" name="dueDate" type="date" value={formData.dueDate} onChange={handleChange} />
+                            </div>
+                            <h4 className="text-lg font-semibold text-gray-700 pt-4">Line Items</h4>
+                            <div className="space-y-2 max-h-40 overflow-y-auto pr-2 border rounded-lg p-2 bg-gray-50">
+                                {lineItems.length === 0 && <p className="text-gray-500 p-2">No line items extracted.</p>}
+                                {lineItems.map((item, index) => (
+                                    <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                                        <input type="text" name="description" value={item.description} onChange={(e) => handleLineItemChange(index, e)} placeholder="Description" className="col-span-5 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="quantity" value={item.quantity} onChange={(e) => handleLineItemChange(index, e)} placeholder="Qty" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="unitPrice" value={item.unitPrice} onChange={(e) => handleLineItemChange(index, e)} placeholder="Unit Price" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <input type="number" name="total" value={item.total} onChange={(e) => handleLineItemChange(index, e)} placeholder="Total" className="col-span-2 mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm text-sm" />
+                                        <button onClick={() => removeLineItem(index)} className="text-red-500 hover:text-red-700">X</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button onClick={addLineItem} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">+ Add Line Item</button>
+                             <div className="grid grid-cols-3 gap-4 pt-4">
+                                <InputField label="Subtotal" name="subtotal" type="number" value={formData.subtotal} onChange={handleChange} />
+                                <InputField label="Tax" name="tax" type="number" value={formData.tax} onChange={handleChange} />
+                                <InputField label="Total Amount" name="totalAmount" type="number" value={formData.totalAmount} onChange={handleChange} />
+                             </div>
+                             <div className="flex justify-between items-center pt-6">
+                                <div>
+                                    <button onClick={() => setIsDeleteModalOpen(true)} disabled={isUpdating} className="px-5 py-2 rounded-lg text-red-600 bg-red-100 hover:bg-red-200 font-medium">Delete</button>
+                                </div>
+                                <div className="flex space-x-3">
+                                    <button onClick={() => handleSave()} disabled={isUpdating} className="px-5 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 font-medium shadow-md">
+                                        {isUpdating ? 'Saving...' : 'Save Changes'}
+                                    </button>
+                                    <button onClick={() => handleSave('Rejected')} disabled={isUpdating} className="px-5 py-2 rounded-lg text-white bg-gray-500 hover:bg-gray-600 font-medium shadow-md">
+                                        {isUpdating ? '...' : 'Reject'}
+                                    </button>
+                                    <button onClick={() => handleSave('Approved')} disabled={isUpdating} className="px-5 py-2 rounded-lg text-white bg-green-600 hover:bg-green-700 font-medium shadow-md">
+                                        {isUpdating ? '...' : 'Approve'}
+                                    </button>
+                                </div>
+                             </div>
+                             {error && <p className="text-red-600 text-sm text-right mt-2">{error}</p>}
+                        </div>
+                    </div>
+                    <AuditLogModal isOpen={isAuditModalOpen} onClose={() => setIsAuditModalOpen(false)} invoice={invoice} />
+                    <DeleteModal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} onConfirm={handleDelete} invoice={invoice} isDeleting={isDeleting} />
+                </div>
+            );
+        };
+        
+        
+        // --- 5. REPORTS PAGE (NEW) ---
+        const ReportsPage = ({ user, db, auth }) => {
+            const [invoices, setInvoices] = useState([]);
+            useEffect(() => {
+                if (!db || !user?.uid) return;
+                const invoicesRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices');
+                const unsubscribe = invoicesRef.where("status", "in", ["Pending", "Approved"]).onSnapshot((snapshot) => {
+                    const fetchedInvoices = snapshot.docs.map(doc => ({
+                        ...doc.data(),
+                        dueDate: doc.data().dueDate?.toDate ? doc.data().dueDate.toDate() : new Date(doc.data().dueDate),
+                        invoiceDate: doc.data().invoiceDate?.toDate ? doc.data().invoiceDate.toDate() : new Date(doc.data().invoiceDate),
+                    }));
+                    setInvoices(fetchedInvoices);
+                }, (error) => console.error("Firestore onSnapshot error:", error));
+                return () => unsubscribe();
+            }, [db, user]);
+
+            const agingData = useMemo(() => {
+                const buckets = { "Current": 0, "0-30 Days": 0, "31-60 Days": 0, "60+ Days": 0 };
+                invoices.filter(inv => inv.status === 'Pending').forEach(inv => {
+                    const aging = getAgingCategory(inv.dueDate, inv.status);
+                    const amount = inv.totalAmount || 0;
+                    if (aging.days === 0) buckets["Current"] += amount;
+                    else if (aging.days <= 30) buckets["0-30 Days"] += amount;
+                    else if (aging.days <= 60) buckets["31-60 Days"] += amount;
+                    else buckets["60+ Days"] += amount;
+                });
+                return Object.entries(buckets).map(([name, value]) => ({ name, value }));
+            }, [invoices]);
+            
+            const monthlyData = useMemo(() => {
+                const monthlyMap = {};
+                invoices.forEach(invoice => {
+                    const date = invoice.invoiceDate;
+                    if (isNaN(date) || !date) return; 
+                    const monthKey = date.toLocaleString('en-US', { year: 'numeric', month: 'short' });
+                    monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + 1; // Count invoices
+                });
+                const sortedKeys = Object.keys(monthlyMap).sort((a, b) => new Date(a) - new Date(b));
+                return sortedKeys.map(key => ({ month: key, count: monthlyMap[key] }));
+            }, [invoices]);
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                        <h3 className="text-xl font-semibold text-gray-800 mb-4">Aging Buckets (Pending Payables)</h3>
+                        <div style={{ width: '100%', height: 300 }}>
+                            <ResponsiveContainer>
+                                <BarChart data={agingData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                                    <XAxis dataKey="name" fontSize={12} />
+                                    <YAxis fontSize={12} tickFormatter={(value) => formatCurrency(value)} />
+                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                        <h3 className="text-xl font-semibold text-gray-800 mb-4">Monthly Invoice Volume (All Statuses)</h3>
+                        <div style={{ width: '100%', height: 300 }}>
+                             <ResponsiveContainer>
+                                <AreaChart data={monthlyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="month" fontSize={12} />
+                                    <YAxis fontSize={12} />
+                                    <Tooltip />
+                                    <Area type="monotone" dataKey="count" stroke="#4f46e5" fill="#c7d2fe" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        
+        // --- 6. ADMIN PAGE (USER MANAGEMENT) ---
+        const AdminPage = ({ user, db, auth }) => {
+            const [allUsers, setAllUsers] = useState([]);
+            const [adminError, setAdminError] = useState('');
+            const [adminUpdatingId, setAdminUpdatingId] = useState(null);
+
+            useEffect(() => {
+                if (user.role === 'Admin' && db) {
+                    const usersRef = db.collection('users');
+                    const unsubscribe = usersRef.onSnapshot((snapshot) => {
+                        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+                        setAllUsers(fetchedUsers);
+                    }, (error) => setAdminError(error.message));
+                    return () => unsubscribe();
+                }
+            }, [user.role, db]);
+            
+            const handleRoleChange = async (targetUid, newRole) => {
+                if (!db) return;
+                setAdminUpdatingId(targetUid);
+                try {
+                    const userRef = db.collection('users').doc(targetUid);
+                    await userRef.update({ role: newRole });
+                    setAdminError('');
+                } catch (error) {
+                    console.error("Error changing user role:", error);
+                    setAdminError(`Failed to update role: ${error.message}`);
+                } finally {
+                    setAdminUpdatingId(null);
+                }
+            };
+
+            if (user.role !== 'Admin') {
+                return <div className="p-8 text-red-600">You do not have permission to view this page.</div>;
+            }
+            
+            return (
+                <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
+                    <h2 className="text-2xl font-semibold text-gray-800 mb-4">Admin Panel: User Management</h2>
+                    {adminError && <p className="text-sm text-red-600 mb-2">{adminError}</p>}
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b-2 border-gray-200">
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Email</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Username</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Role</th>
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {allUsers.map((u) => (
+                                    <tr key={u.uid} className="hover:bg-gray-50">
+                                        <td className="p-3 text-sm text-gray-800 font-medium">{u.email}</td>
+                                        <td className="p-3 text-sm text-gray-600">{u.username}</td>
+                                        <td className="p-3 text-sm text-gray-600">
+                                            {u.uid === user.uid ? (
+                                                <span className="font-medium text-gray-900">{u.role}</span>
+                                            ) : (
+                                                <select
+                                                    value={u.role}
+                                                    onChange={(e) => handleRoleChange(u.uid, e.target.value)}
+                                                    disabled={adminUpdatingId === u.uid}
+                                                    className="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                                                >
+                                                    <option value="Finance Reviewer">Finance Reviewer</option>
+                                                    <option value="Admin">Admin</option>
+                                                </select>
+                                            )}
+                                        </td>
+                                        <td className="p-3 text-sm">
+                                            {adminUpdatingId === u.uid && <span className="text-xs text-gray-500">Updating...</span>}
+                                            {u.uid === user.uid && <span className="text-xs text-gray-500">(This is you)</span>}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+        
+
+        // --- 7. MAIN APP COMPONENT (ROUTER) ---
+        // --- THIS SECTION IS FIXED ---
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            // FIX: Initialize state as null
+            const [firebaseServices, setFirebaseServices] = useState({ db: null, auth: null });
+            
+            const [route, setRoute] = useState(window.location.hash || '#login');
+
+            // FIX: Use one useEffect to initialize Firebase ONCE
+            useEffect(() => {
+                try {
+                    // Use the global vars we defined at the top
+                    if (globalDb && globalAuth) {
+                        setFirebaseServices({ db: globalDb, auth: globalAuth });
+                    } else {
+                        throw new Error("Firebase was not initialized correctly.");
+                    }
+                } catch (e) {
+                    console.error("Firebase initialization failed:", e);
+                    setLoading(false); // Stop loading if init fails
+                }
+            }, []); // Empty array means this runs only once on mount
+
+            // FIX: This useEffect now waits for firebaseServices to be set
+            useEffect(() => {
+                const { db, auth } = firebaseServices;
+                
+                // If services aren't ready, don't do anything
+                if (!db || !auth) {
+                    if (!loading) { // If we're done loading and services are still null
+                         setLoading(false);
+                    }
+                    return; 
+                }
+                
+                const unsubscribe = auth.onAuthStateChanged(async (user) => {
+                    if (user) {
+                        const userRef = db.collection('users').doc(user.uid);
+                        const doc = await userRef.get();
+                        if (doc.exists) {
+                            const userData = doc.data();
+                            setUser({ ...user, role: userData.role, username: userData.username });
+                        } else {
+                            try {
+                                const newUserRef = db.collection('users').doc(user.uid);
+                                await newUserRef.set({
+                                    email: user.email,
+                                    username: user.email.split('@')[0], // default
+                                    role: 'Finance Reviewer',
+                                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                                setUser({ ...user, role: 'Finance Reviewer', username: user.email.split('@')[0] });
+                            } catch (err) {
+                                console.error("Error creating user doc on the fly:", err);
+                                setUser(null); // Force logout if we can't create doc
+                            }
+                        }
+                        if(window.location.hash === '#login' || window.location.hash === '') {
+                             window.location.hash = '#dashboard';
+                        }
+                    } else {
+                        setUser(null);
+                        window.location.hash = '#login';
+                    }
+                    setLoading(false);
+                });
+                
+                return () => unsubscribe();
+            }, [firebaseServices]); // This effect re-runs when firebaseServices are set
+            
+            useEffect(() => {
+                const handleHashChange = () => {
+                    setRoute(window.location.hash || '#login');
+                };
+                window.addEventListener('hashchange', handleHashChange);
+                handleHashChange();
+                return () => window.removeEventListener('hashchange', handleHashChange);
+            }, []);
+            
+            const handleSignOut = async () => {
+                if (firebaseServices.auth) {
+                    await firebaseServices.auth.signOut();
+                    window.location.hash = '#login';
+                }
+            };
+            
+            const handleNavigate = (hash) => {
+                window.location.hash = hash;
+            };
+
+            if (loading) {
+                 return <div className="flex items-center justify-center min-h-screen">Loading Application...</div>;
+            }
+            if (!firebaseServices.db || !firebaseServices.auth) {
+                return <div className="flex items-center justify-center min-h-screen">Error: Firebase failed to initialize. Check your config.</div>;
+            }
+
+            if (!user) {
+                return <AuthForm db={firebaseServices.db} auth={firebaseServices.auth} />;
+            }
+            
+            const getCurrentPage = () => {
+                const [page, id] = route.split('/');
+                
+                switch(page) {
+                    case '#dashboard':
+                        return <DashboardPage user={user} db={firebaseServices.db} auth={firebaseServices.auth} onNavigate={handleNavigate} />;
+                    case '#invoices':
+                        return <InvoicesListPage user={user} db={firebaseServices.db} auth={firebaseServices.auth} onNavigate={handleNavigate} />;
+                    case '#invoice':
+                        return <InvoiceDetailPage user={user} db={firebaseServices.db} auth={firebaseServices.auth} invoiceId={id} onNavigate={handleNavigate} />;
+                    case '#reports':
+                        return <ReportsPage user={user} db={firebaseServices.db} auth={firebaseServices.auth} />;
+                    case '#admin':
+                        return <AdminPage user={user} db={firebaseServices.db} auth={firebaseServices.auth} />;
+                    default:
+                        handleNavigate('#dashboard');
+                        return null;
+                }
+            };
+            
+            return (
+                <div className="flex min-h-screen">
+                    <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0">
+                        <h2 className="text-2xl font-extrabold text-indigo-700 mb-6">AI Invoice</h2>
+                        <ul className="space-y-2">
+                            {[
+                                { hash: '#dashboard', label: 'Dashboard' },
+                                { hash: '#invoices', label: 'Invoices' },
+                                { hash: '#reports', label: 'Reports' },
+                                { hash: '#admin', label: 'Admin', adminOnly: true },
+                            ].map((item) => {
+                                if (item.adminOnly && user.role !== 'Admin') return null;
+                                const isActive = route.startsWith(item.hash);
+                                return (
+                                    <li key={item.hash}>
+                                        <a 
+                                            href={item.hash} 
+                                            className={`block px-4 py-2 rounded-lg font-medium ${
+                                                isActive ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            {item.label}
+                                        </a>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <div className="mt-auto">
+                            <div className="border-t pt-4">
+                                <p className="text-sm font-medium text-gray-800 truncate" title={user.email}>{user.username || user.email}</p>
+                                <p className="text-xs text-gray-500">{user.role}</p>
+
+                            </div>
+                            <button
+                                onClick={handleSignOut}
+                                className="w-full mt-4 px-4 py-2 rounded-lg text-sm font-medium text-indigo-700 bg-indigo-100 hover:bg-indigo-200 transition duration-150"
+                            >
+                                Sign Out
+                            </button>
+                        </div>
+                    </nav>
+                    
+                    <main className="flex-1 p-8 bg-gray-100 overflow-auto">
+                        {getCurrentPage()}
+                    </main>
+                </div>
+            );
+        };
+        
+        // --- MOUNT THE APP ---
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+
+</body>
+</html>
+

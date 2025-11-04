@@ -1,20 +1,13 @@
-# This tells Render to install Tesseract and Poppler
 services:
   - type: web
     name: ai-invoice-backend
-    env: python
-    plan: free # Use the free instance type
-    
-    # Specify the full Python version
-    pythonVersion: "3.11.9"
-    
-    # Tell Render to look inside the 'backend' folder
-    rootDir: backend 
-    
-    # Commands to run on build
-    buildCommands:
-      - apt-get update && apt-get install -y tesseract-ocr poppler-utils
-      - pip install -r requirements.txt
-      
-    # Command to start the server
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: |
+      apt-get update && apt-get install -y tesseract-ocr poppler-utils
+      pip install -r requirements.txt
     startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

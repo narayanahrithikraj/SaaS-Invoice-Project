@@ -5,10 +5,14 @@ services:
     env: python
     plan: free # Use the free instance type
     
+    # NEW: Specify the full Python version
+    pythonVersion: "3.11.9" 
+    
     # Commands to run on build
-    build: |
-      apt-get update && apt-get install -y tesseract-ocr poppler-utils
-      pip install -r requirements.txt
+    buildCommands:
+      - apt-get update && apt-get install -y tesseract-ocr poppler-utils
+      - pip install -r requirements.txt
       
     # Command to start the server
-    start: gunicorn app:app
+    startCommand: gunicorn app:app
+

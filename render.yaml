@@ -18,15 +18,4 @@ services:
       
     # Command to start the server
     startCommand: gunicorn app:app
-```
-
-### Your Next Steps:
-
-1.  **Save** this new code into your `render.yaml` file (in the root `SAAS-INVOICE-PROJECT` folder).
-2.  **Push this change to GitHub:**
-    ```bash
-    git add .
-    git commit -m "Fix: Correct indentation in render.yaml"
-    git push
-    
 

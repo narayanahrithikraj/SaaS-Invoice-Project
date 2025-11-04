@@ -12,6 +12,7 @@
     <!-- 3. Load Babel (to use JSX in the browser) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- 4. Load Firebase (App, Auth, Firestore) -->
+    <!-- NOTE: We are *NOT* loading Firebase Storage to avoid the paid plan -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
@@ -39,6 +40,7 @@
 
         const appId = firebaseConfig.projectId;
         
+        // --- FIREBASE INITIALIZATION ---
         let globalDb, globalAuth;
         try {
             const app = firebase.initializeApp(firebaseConfig);
@@ -48,20 +50,18 @@
         } catch (e) {
             console.error("Firebase initialization failed:", e);
         }
-        
+
         // ===================================================================
         //
-        // PASTE YOUR NGROK URL HERE (from Part 1, Step 4)
-        // It must be the 'https://' address
-        //
+        // IMPORTANT: We will update this URL after deploying the backend
+        // 
         // ===================================================================
-        const BACKEND_API_URL = 'https://PASTE-YOUR-NGROK-URL-HERE.ngrok.io/process-invoice';
+        const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Set to localhost for now
         
         // Function to call the real Python/Flask backend
         const callProcessInvoiceAPI = async (file) => {
             const formData = new FormData();
             formData.append('invoiceFile', file);
-            // We remove /process-invoice from the end because it's already in the URL
             const response = await fetch(BACKEND_API_URL, { method: 'POST', body: formData });
             if (!response.ok) {
                 let errorDetail = 'Unknown server error.';
@@ -1165,7 +1165,12 @@
                     if (globalDb && globalAuth) {
                         setFirebaseServices({ db: globalDb, auth: globalAuth });
                     } else {
-                        throw new Error("Firebase was not initialized correctly.");
+                        // This handles if the global init failed
+                        const app = firebase.initializeApp(firebaseConfig);
+                        const db = firebase.firestore(app);
+                        const auth = firebase.auth(app);
+                        firebase.firestore.setLogLevel('debug');
+                        setFirebaseServices({ db, auth });
                     }
                 } catch (e) {
                     console.error("Firebase initialization failed:", e);
@@ -1179,8 +1184,8 @@
                 
                 // If services aren't ready, don't do anything
                 if (!db || !auth) {
-                    if (!loading) { // If we're done loading and services are still null
-                         setLoading(false);
+                    if (!loading) { // If we're not loading and services are still null
+                        setLoading(false);
                     }
                     return; 
                 }
@@ -1218,7 +1223,7 @@
                 });
                 
                 return () => unsubscribe();
-            }, [firebaseServices]); // This effect re-runs when firebaseServices are set
+            }, [firebaseServices, loading]); // This effect re-runs when firebaseServices are set
             
             useEffect(() => {
                 const handleHashChange = () => {

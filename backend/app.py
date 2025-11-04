@@ -19,17 +19,17 @@ CORS(app) # Allow requests from your frontend
 logging.basicConfig(level=logging.INFO)
 
 # --- 1. TESSERACT CONFIGURATION ---
-# We REMOVED the hardcoded Tesseract path.
-# Render will install it in the system PATH.
-try:
-    pytesseract.get_tesseract_version()
-    logging.info("Tesseract found in system PATH.")
-except Exception as e:
-    logging.error(f"Tesseract not found. Make sure it's in the PATH. Error: {e}")
+# On Render, Tesseract is installed in the system PATH by 'render.yaml',
+# so we do not need to set the pytesseract.tesseract_cmd path.
+# We leave this blank for production.
+logging.info("Tesseract should be in system PATH on production.")
+
 
 # --- 2. GEMINI (LLM) CONFIGURATION ---
+llm_model = None
 try:
-    # IMPORTANT: We will set this as an Environment Variable in Render
+    # IMPORTANT: Get API key from environment variable on Render
+    # This is set in the Render dashboard
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     
     if not GEMINI_API_KEY:
@@ -47,12 +47,11 @@ try:
     
     llm_model = genai.GenerativeModel(
         model_name="gemini-2.5-flash-preview-09-2025",
-        generation_config=generation_config
+        generation_config=generation_config # <-- This was the typo, now fixed
     )
     logging.info("Gemini AI configured successfully.")
 except Exception as e:
     logging.error(f"Error configuring Gemini AI: {e}")
-    llm_model = None
 
 # --- 3. HELPER FUNCTIONS ---
 
@@ -93,11 +92,12 @@ def process_file(file_path, file_extension):
         if file_extension == '.pdf':
             with tempfile.TemporaryDirectory() as temp_path:
                 try:
-                    # We REMOVED the hardcoded poppler_path.
-                    # Render will install it in the system PATH.
+                    # On Render, Poppler is installed in the PATH by 'render.yaml',
+                    # so we set poppler_path=None.
                     images = convert_from_path(
                         file_path, 
-                        output_folder=temp_path
+                        output_folder=temp_path, 
+                        poppler_path=None
                     )
                     for i, img in enumerate(images):
                         logging.info(f"Processing page {i+1}...")
@@ -130,6 +130,7 @@ def extract_data_from_text(text):
 
     today_date = datetime.now().strftime('%Y-%m-%d')
 
+    # This is the full, advanced prompt
     prompt = f"""
     You are an expert financial analyst. Analyze the following OCR text from an invoice and extract the key fields.
     Return your answer in a strict JSON format. Do not include any text outside of the JSON block.
@@ -188,7 +189,7 @@ def extract_data_from_text(text):
             "lineItems": data.get("lineItems", []),
             "confidenceScore": float(data.get("confidenceScore", 0.5) or 0.5),
             "rationale": data.get("rationale", "N/A"),
-            "status": "Pending" 
+            "status": "Pending" # Default status for human review
         }
         
         logging.info(f"LLM Extraction successful: {extracted_data['vendorName']}, {extracted_data['totalAmount']}")
@@ -208,7 +209,7 @@ def extract_data_from_text(text):
             "currency": "INR",
             "lineItems": [],
             "confidenceScore": 0.0,
-            "rationale": "AI model failed to process the document.",
+            "rationale": str(e),
             "status": f"AI Error: {e}"
         }
 
@@ -234,12 +235,7 @@ def process_invoice():
             try:
                 ocr_text = process_file(temp_file_path, file_extension)
                 extracted_data = extract_data_from_text(ocr_text)
-
-                return jsonify({
-                    "status": "Success",
-                    "extractedData": extracted_data
-                }), 200
-
+                return jsonify({ "status": "Success", "extractedData": extracted_data }), 200
             except Exception as e:
                 logging.error(f"Error in process_invoice endpoint: {e}")
                 return jsonify({"status": "Error", "message": str(e)}), 500
@@ -250,6 +246,7 @@ def process_invoice():
 if __name__ == '__main__':
     # Use 0.0.0.0 to be accessible on the network
     # Use Render's dynamically assigned PORT
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get("PORT", 5000))
+    # Run with debug=False for production
     app.run(host='0.0.0.0', port=port, debug=False)
 

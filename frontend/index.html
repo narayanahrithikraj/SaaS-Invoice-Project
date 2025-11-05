@@ -47,8 +47,8 @@
         // IMPORTANT: Set this to your LIVE Render URL when deploying
         // 
         // ===================================================================
-        const BACKEND_API_URL = 'https://ai-invoice-backend-4qwa.onrender.com/process-invoice'; // <-- LIVE URL
-        // const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Local dev URL
+        // const BACKEND_API_URL = 'https://ai-invoice-backend-4qwa.onrender.com/process-invoice'; // <-- LIVE URL
+        const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Local dev URL
         
         // Function to call the real Python/Flask backend
         const callProcessInvoiceAPI = async (file) => {
@@ -478,7 +478,13 @@
 
             const handleUpload = async () => {
                 if (!file) return setUploadStatus('Please select a file first.');
-                if (!db || !auth || !user?.uid) return setUploadStatus('Error: Database is not connected.');
+                console.log("DB : ",db?db:"db null");
+                console.log("auth : ",auth?auth:"auth null");
+                console.log("user : ",user?user:"user null");
+                console.log("user : ",user?user.multiFactor?.user?.uid:"U_ID null");
+
+
+                if (!db || !auth || !user.multiFactor?.user?.uid) return setUploadStatus('Error: Database is not connected.');
                 setIsProcessing(true);
                 setUploadStatus(`Uploading ${file.name}...`);
                 try {

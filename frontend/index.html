@@ -40,23 +40,15 @@
 
         const appId = firebaseConfig.projectId;
         
-        // --- FIREBASE INITIALIZATION ---
-        let globalDb, globalAuth;
-        try {
-            const app = firebase.initializeApp(firebaseConfig);
-            globalDb = firebase.firestore(app);
-            globalAuth = firebase.auth(app);
-            firebase.firestore.setLogLevel('debug');
-        } catch (e) {
-            console.error("Firebase initialization failed:", e);
-        }
+        // --- NOTE: NO GLOBAL FIREBASE VARS HERE ---
 
         // ===================================================================
         //
-        // IMPORTANT: We will update this URL after deploying the backend
+        // IMPORTANT: Set this to your LIVE Render URL when deploying
         // 
         // ===================================================================
-        const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Set to localhost for now
+        const BACKEND_API_URL = 'https://ai-invoice-backend-4qwa.onrender.com/process-invoice'; // <-- LIVE URL
+        // const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Local dev URL
         
         // Function to call the real Python/Flask backend
         const callProcessInvoiceAPI = async (file) => {
@@ -1161,17 +1153,13 @@
             // FIX: Use one useEffect to initialize Firebase ONCE
             useEffect(() => {
                 try {
-                    // Use the global vars we defined at the top
-                    if (globalDb && globalAuth) {
-                        setFirebaseServices({ db: globalDb, auth: globalAuth });
-                    } else {
-                        // This handles if the global init failed
-                        const app = firebase.initializeApp(firebaseConfig);
-                        const db = firebase.firestore(app);
-                        const auth = firebase.auth(app);
-                        firebase.firestore.setLogLevel('debug');
-                        setFirebaseServices({ db, auth });
-                    }
+                    // Initialize Firebase *here* and only here.
+                    const app = firebase.initializeApp(firebaseConfig);
+                    const db = firebase.firestore(app);
+                    const auth = firebase.auth(app);
+                    firebase.firestore.setLogLevel('debug');
+                    // Set the services in state
+                    setFirebaseServices({ db, auth });
                 } catch (e) {
                     console.error("Firebase initialization failed:", e);
                     setLoading(false); // Stop loading if init fails
@@ -1277,7 +1265,7 @@
             };
             
             return (
-                <div className="flex min-h-screen">
+                <div className="flex h-screen overflow-hidden bg-gray-100">
                     <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0">
                         <h2 className="text-2xl font-extrabold text-indigo-700 mb-6">AI Invoice</h2>
                         <ul className="space-y-2">
@@ -1318,7 +1306,7 @@
                         </div>
                     </nav>
                     
-                    <main className="flex-1 p-8 bg-gray-100 overflow-auto">
+                    <main className="flex-1 p-8 overflow-auto">
                         {getCurrentPage()}
                     </main>
                 </div>
@@ -1331,4 +1319,3 @@
 
 </body>
 </html>
-

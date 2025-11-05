@@ -2,39 +2,36 @@ import os
 import re
 import tempfile
 import json
+import mimetypes  # <-- Added to detect file type
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pdf2image import convert_from_path
-from PIL import Image
-import pytesseract
+# from pdf2image import convert_from_path  # <-- REMOVED
+# from PIL import Image                   # <-- REMOVED
+# import pytesseract                      # <-- REMOVED
 import google.generativeai as genai
 import logging
+from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
+load_dotenv()  # Make sure this is at the top
 app = Flask(__name__)
-CORS(app) # Allow requests from your frontend
+CORS(app)  # Allow requests from your frontend
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
 # --- 1. TESSERACT CONFIGURATION ---
-# On Render, Tesseract is installed in the system PATH by 'render.yaml',
-# so we do not need to set the pytesseract.tesseract_cmd path.
-# We leave this blank for production.
-logging.info("Tesseract should be in system PATH on production.")
-
+# (This section is no longer needed)
+logging.info("Tesseract and Poppler are NO longer used in this project.")
 
 # --- 2. GEMINI (LLM) CONFIGURATION ---
 llm_model = None
 try:
-    # IMPORTANT: Get API key from environment variable on Render
-    # This is set in the Render dashboard
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-    
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY environment variable not set.")
-        
+    
     genai.configure(api_key=GEMINI_API_KEY)
     
     generation_config = {
@@ -45,11 +42,14 @@ try:
       "response_mime_type": "application/json",
     }
     
+    # --- IMPORTANT ---
+    # Changed to a model that supports file uploads (multimodal)
+    # Your old model name was invalid.
     llm_model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash-preview-09-2025",
-        generation_config=generation_config # <-- This was the typo, now fixed
+        model_name="gemini-1.5-flash-latest",
+        generation_config=generation_config
     )
-    logging.info("Gemini AI configured successfully.")
+    logging.info("Gemini AI configured successfully (multimodal).")
 except Exception as e:
     logging.error(f"Error configuring Gemini AI: {e}")
 
@@ -58,20 +58,14 @@ except Exception as e:
 def parse_date(date_str, default_date):
     """
     Tries to parse a date string from various common formats.
+    (This function remains unchanged)
     """
     if not date_str or date_str.lower() == 'n/a':
         return default_date
 
     formats_to_try = [
-        '%Y-%m-%d', # 2025-11-02
-        '%m/%d/%Y', # 11/02/2025
-        '%d/%m/%Y', # 02/11/2025
-        '%m-%d-%Y', # 11-02-2025
-        '%d-%m-%Y', # 02-11-2025
-        '%d.%m.%Y', # 02.11.2025
-        '%m.%d.%Y', # 11.02.2025
-        '%b %d, %Y', # Nov 02, 2025
-        '%d %b %Y', # 02 Nov 2025
+        '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%m-%d-%Y', '%d-%m-%Y',
+        '%d.%m.%Y', '%m.%d.%Y', '%b %d, %Y', '%d %b %Y',
     ]
     
     for date_format in formats_to_try:
@@ -83,94 +77,70 @@ def parse_date(date_str, default_date):
     logging.warning(f"Could not parse date: {date_str}. Defaulting.")
     return default_date
 
-def process_file(file_path, file_extension):
-    """
-    Converts a PDF or image file to text using Tesseract OCR.
-    """
-    all_text = ""
-    try:
-        if file_extension == '.pdf':
-            with tempfile.TemporaryDirectory() as temp_path:
-                try:
-                    # On Render, Poppler is installed in the PATH by 'render.yaml',
-                    # so we set poppler_path=None.
-                    images = convert_from_path(
-                        file_path, 
-                        output_folder=temp_path, 
-                        poppler_path=None
-                    )
-                    for i, img in enumerate(images):
-                        logging.info(f"Processing page {i+1}...")
-                        all_text += pytesseract.image_to_string(img) + "\n\n"
-                except Exception as e:
-                    logging.error(f"Error during PDF processing (Poppler): {e}")
-                    raise Exception(f"PDF processing failed. Is poppler installed? Error: {e}")
+# --- REMOVED 'process_file' FUNCTION ---
+# Tesseract/Poppler logic is no longer needed.
 
-        elif file_extension in ['.png', '.jpg', '.jpeg']:
-            all_text = pytesseract.image_to_string(Image.open(file_path))
-        else:
-            raise ValueError("Unsupported file type")
-            
-        if not all_text:
-            logging.warning("OCR returned no text.")
-            raise Exception("OCR failed to extract any text from the document.")
-
-        return all_text
-        
-    except Exception as e:
-        logging.error(f"Error in process_file: {e}")
-        raise
-
-def extract_data_from_text(text):
+def extract_data_from_file(file_path):  # <-- This function is NEW
     """
-    Uses the Gemini LLM to extract all structured data from OCR text.
+    Uploads the invoice file (PDF/image) to Gemini and extracts structured data.
     """
     if not llm_model:
         raise Exception("Gemini AI Model is not configured or failed to initialize.")
 
     today_date = datetime.now().strftime('%Y-%m-%d')
-
-    # This is the full, advanced prompt
-    prompt = f"""
-    You are an expert financial analyst. Analyze the following OCR text from an invoice and extract the key fields.
-    Return your answer in a strict JSON format. Do not include any text outside of the JSON block.
-    
-    The JSON schema must be:
-    {{
-      "vendorName": "Vendor's company name",
-      "invoiceNumber": "The invoice ID or number",
-      "invoiceDate": "YYYY-MM-DD",
-      "dueDate": "YYYY-MM-DD",
-      "subtotal": 0.00,
-      "tax": 0.00,
-      "totalAmount": 0.00,
-      "currency": "e.g., 'INR', 'USD'",
-      "lineItems": [
-        {{ "description": "Item description", "quantity": 1, "unitPrice": 0.00, "total": 0.00 }}
-      ],
-      "confidenceScore": 0.0,
-      "rationale": "A one-sentence explanation for your extraction."
-    }}
-
-    Rules:
-    - If a field is not found, return "N/A" for strings, 0.00 for numbers, and [] for lineItems.
-    - If invoiceDate is not found, use today's date: {today_date}.
-    - If dueDate is not found, use the invoiceDate.
-    - "totalAmount" must be the final total. "subtotal" is the total before tax.
-    - "lineItems" is an array of objects. Try to find at least one. If none are clear, return an empty array.
-    - "confidenceScore" is your estimated confidence from 0.0 (low) to 1.0 (high) that you correctly extracted the main fields.
-    - "rationale" is a *short* (one sentence) justification.
-
-    Here is the OCR text (first 4000 chars):
-    ---
-    {text[:4000]}
-    ---
-    """
+    uploaded_file = None
     
     try:
-        logging.info("Sending text to Gemini LLM for extraction...")
+        # 1. Upload the file to Gemini
+        logging.info(f"Uploading file to Gemini: {file_path}")
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = 'application/octet-stream' # Fallback
+            
+        uploaded_file = genai.upload_file(path=file_path, mime_type=mime_type)
+        logging.info(f"File uploaded successfully: {uploaded_file.name}")
+
+        # 2. Create the multimodal prompt
+        prompt = [
+            f"""
+            You are an expert financial analyst. Analyze the following invoice file (which could be a PDF or image) 
+            and extract the key fields. Perform OCR on the file as needed.
+            Return your answer in a strict JSON format. Do not include any text outside of the JSON block.
+            
+            The JSON schema must be:
+            {{
+              "vendorName": "Vendor's company name",
+              "invoiceNumber": "The invoice ID or number",
+              "invoiceDate": "YYYY-MM-DD",
+              "dueDate": "YYYY-MM-DD",
+              "subtotal": 0.00,
+              "tax": 0.00,
+              "totalAmount": 0.00,
+              "currency": "e.g., 'INR', 'USD'",
+              "lineItems": [
+                {{ "description": "Item description", "quantity": 1, "unitPrice": 0.00, "total": 0.00 }}
+              ],
+              "confidenceScore": 0.0,
+              "rationale": "A one-sentence explanation for your extraction."
+            }}
+
+            Rules:
+            - If a field is not found, return "N/A" for strings, 0.00 for numbers, and [] for lineItems.
+            - If invoiceDate is not found, use today's date: {today_date}.
+            - If dueDate is not found, use the invoiceDate.
+            - "totalAmount" must be the final total. "subtotal" is the total before tax.
+            - "lineItems" is an array of objects. Try to find at least one. If none are clear, return an empty array.
+            - "confidenceScore" is your estimated confidence from 0.0 (low) to 1.0 (high) that you correctly extracted the main fields.
+            - "rationale" is a *short* (one sentence) justification.
+            """,
+            uploaded_file  # <-- Pass the file object directly to Gemini
+        ]
+
+        # 3. Send to Gemini
+        logging.info("Sending file to Gemini LLM for extraction...")
         response = llm_model.generate_content(prompt)
         
+        # 4. Parse the response (same as before)
         json_text = response.text.strip().lstrip("```json").rstrip("```")
         data = json.loads(json_text)
         
@@ -198,20 +168,22 @@ def extract_data_from_text(text):
     except Exception as e:
         logging.error(f"Error during LLM extraction: {e}")
         error_message = f"AI Error: {e}"
+        # (Error handling logic remains the same)
         return {
-            "vendorName": "AI Error",
-            "invoiceNumber": "N/A",
-            "invoiceDate": today_date,
-            "dueDate": today_date,
-            "subtotal": 0.0,
-            "tax": 0.0,
-            "totalAmount": 0.0,
-            "currency": "INR",
-            "lineItems": [],
-            "confidenceScore": 0.0,
-            "rationale": str(e),
+            "vendorName": "AI Error", "invoiceNumber": "N/A", "invoiceDate": today_date,
+            "dueDate": today_date, "subtotal": 0.0, "tax": 0.0, "totalAmount": 0.0,
+            "currency": "INR", "lineItems": [], "confidenceScore": 0.0, "rationale": str(e),
             "status": f"AI Error: {e}"
         }
+    finally:
+        # 5. Clean up the uploaded file from Google's servers
+        if uploaded_file:
+            try:
+                genai.delete_file(uploaded_file.name)
+                logging.info(f"Cleaned up uploaded file: {uploaded_file.name}")
+            except Exception as e:
+                logging.warning(f"Could not delete uploaded file: {e}")
+
 
 # --- 4. FLASK API ENDPOINT ---
 @app.route('/process-invoice', methods=['POST'])
@@ -225,16 +197,20 @@ def process_invoice():
         return jsonify({"status": "Error", "message": "No selected file"}), 400
 
     if file:
-        filename, file_extension = os.path.splitext(file.filename)
+        # We still need to save the file temporarily to get a path
+        filename = file.filename
         
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_file_path = os.path.join(temp_dir, f"upload{file_extension}")
+            temp_file_path = os.path.join(temp_dir, filename)
             file.save(temp_file_path)
             logging.info(f"File saved temporarily at {temp_file_path}")
 
             try:
-                ocr_text = process_file(temp_file_path, file_extension)
-                extracted_data = extract_data_from_text(ocr_text)
+                # --- THIS IS THE ONLY CHANGE ---
+                # Call the new file-based extraction function
+                extracted_data = extract_data_from_file(temp_file_path)
+                # --- END OF CHANGE ---
+                
                 return jsonify({ "status": "Success", "extractedData": extracted_data }), 200
             except Exception as e:
                 logging.error(f"Error in process_invoice endpoint: {e}")
@@ -244,9 +220,5 @@ def process_invoice():
 
 # --- 5. RUN THE APP ---
 if __name__ == '__main__':
-    # Use 0.0.0.0 to be accessible on the network
-    # Use Render's dynamically assigned PORT
     port = int(os.environ.get("PORT", 5000))
-    # Run with debug=False for production
-    app.run(host='0.0.0.0', port=port, debug=False)
-
+    app.run(host='0.0.0.0', port=port, debug=False) # Use debug=True for local dev

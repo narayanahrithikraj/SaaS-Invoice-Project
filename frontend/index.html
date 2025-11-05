@@ -622,7 +622,7 @@
                 if (isActive) {
                     switch (status) {
                         case 'Pending': return baseClasses + 'bg-yellow-500 text-white shadow-md';
-                        case 'Approved': return baseClasses + 'bg-green-500 text-white shadow-md';
+                        case 'Approved': return baseBases + 'bg-green-500 text-white shadow-md';
                         case 'Rejected': return baseClasses + 'bg-red-500 text-white shadow-md';
                         default: return baseClasses + 'bg-indigo-600 text-white shadow-md'; // 'All'
                     }
@@ -1211,7 +1211,7 @@
                 });
                 
                 return () => unsubscribe();
-            }, [firebaseServices, loading]); // This effect re-runs when firebaseServices are set
+            }, [firebaseServices]); // FIX: Remove 'loading' from dependency array
             
             useEffect(() => {
                 const handleHashChange = () => {
@@ -1264,6 +1264,7 @@
                 }
             };
             
+            // --- THIS IS THE SCROLL FIX ---
             return (
                 <div className="flex h-screen overflow-hidden bg-gray-100">
                     <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0">

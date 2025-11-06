@@ -46,7 +46,7 @@ try:
     # Changed to a model that supports file uploads (multimodal)
     # Your old model name was invalid.
     llm_model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-latest",
+        model_name="gemini-2.5-flash",
         generation_config=generation_config
     )
     logging.info("Gemini AI configured successfully (multimodal).")
@@ -146,7 +146,7 @@ def extract_data_from_file(file_path):  # <-- This function is NEW
         
         invoice_date = parse_date(data.get("invoiceDate"), default_date=today_date)
         due_date = parse_date(data.get("dueDate"), default_date=invoice_date)
-        
+    
         extracted_data = {
             "vendorName": data.get("vendorName", "Unknown Vendor").strip(),
             "invoiceNumber": data.get("invoiceNumber", "N/A").strip(),
@@ -159,9 +159,10 @@ def extract_data_from_file(file_path):  # <-- This function is NEW
             "lineItems": data.get("lineItems", []),
             "confidenceScore": float(data.get("confidenceScore", 0.5) or 0.5),
             "rationale": data.get("rationale", "N/A"),
-            "status": "Pending" # Default status for human review
         }
-        
+
+        print("extracted_data",extracted_data)
+
         logging.info(f"LLM Extraction successful: {extracted_data['vendorName']}, {extracted_data['totalAmount']}")
         return extracted_data
 

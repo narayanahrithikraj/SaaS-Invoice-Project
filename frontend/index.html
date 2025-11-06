@@ -4,19 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Finance Dashboard</title>
-    <!-- 1. Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 2. Load React & ReactDOM -->
     <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
-    <!-- 3. Load Babel (to use JSX in the browser) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 4. Load Firebase (App, Auth, Firestore) -->
-    <!-- NOTE: We are *NOT* loading Firebase Storage to avoid the paid plan -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
-    <!-- 5. Load Charting Libraries -->
     <script src="https://unpkg.com/prop-types@15.7.2/prop-types.min.js" crossorigin></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.8/Recharts.min.js"></script>
 </head>
@@ -83,17 +77,20 @@
                 </div>
             );
         };
-        
+
+        // --- FIX: MOVED AuthInput HERE ---
         const AuthInput = ({type, placeholder, value, onChange, name}) => (
-             <div>
+            <div>
                 <label htmlFor={name} className="sr-only">{placeholder}</label>
                 <input
                     id={name} name={name} type={type} value={value} onChange={onChange} required
-                    className="appearance-none rounded-md relative block w-full px-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                    // Reduced py-3 to py-2.5 for a shorter input
+                    className="appearance-none rounded-md relative block w-full px-4 py-2.5 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150"
                     placeholder={placeholder}
                 />
             </div>
         );
+        // --- END FIX ---
         
         const StatCard = ({ title, value, description, colorClass = "text-indigo-600" }) => (
             <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
@@ -326,7 +323,7 @@
             );
         };
         
-        // --- 1. AUTHENTICATION PAGE ---
+        // --- 1. AUTHENTICATION PAGE (COMPACT UI FIX) ---
         const AuthForm = ({ db, auth }) => {
             const [isLogin, setIsLogin] = useState(true);
             const [error, setError] = useState('');
@@ -353,6 +350,12 @@
                     } else {
                         if (password !== confirmPassword) throw new Error("Passwords do not match.");
                         if (password.length < 6) throw new Error("Password must be at least 6 characters long.");
+                        
+                        const usernameQuery = await db.collection('users').where('username', '==', username).get();
+                        if (!usernameQuery.empty) {
+                            throw new Error("Username already taken. Please choose another.");
+                        }
+
                         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                         if (userCredential.user) {
                             const userRef = db.collection('users').doc(userCredential.user.uid);
@@ -364,9 +367,11 @@
                                 role: 'Finance Reviewer', // Default role
                                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
                             });
+                            setIsLogin(true); 
+                            setError(''); 
+                            alert("Account created successfully! Please sign in."); 
                         }
                     }
-                    // onAuthStateChanged will handle redirect
                 } catch (err) {
                     setError(err.message);
                 } finally {
@@ -374,19 +379,27 @@
                 }
             };
             
+            // --- AuthInput component is now defined globally above ---
+
             return (
-                <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-                    <div className="max-w-md w-full space-y-8">
-                        <div>
-                            <h2 className="mt-6 text-center text-3xl font-extrabold text-indigo-700">
-                                AI Finance Intelligence Platform
+                // We can now use items-center again, as the card will be shorter
+                // Reduced py-12 to py-8 to give a bit more space
+                <div className="min-h-screen flex justify-center items-center bg-gradient-to-br from-indigo-50 to-purple-100 py-8 px-4 sm:px-6 lg:px-8">
+                    {/* Reduced p-8 md:p-10 to p-8 to save space */}
+                    <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-2xl border border-gray-200">
+                        <div className="text-center">
+                            <h2 className="text-4xl font-extrabold text-indigo-700">
+                                AI Finance Platform
                             </h2>
-                            <h3 className="mt-2 text-center text-xl font-bold text-gray-800">
+                            {/* Reduced mt-4 to mt-3 */}
+                            <h3 className="mt-3 text-2xl font-bold text-gray-800">
                                 {isLogin ? 'Sign in to your account' : 'Create a new account'}
                             </h3>
                         </div>
-                        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                            <div className="rounded-md shadow-sm -space-y-px">
+                        {/* Reduced mt-8 space-y-6 to mt-6 space-y-5 */}
+                        <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+                            {/* Reduced space-y-4 to space-y-3 */}
+                            <div className="space-y-3">
                                 {!isLogin && (
                                     <>
                                         <AuthInput type="text" name="fullName" placeholder="Full Name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
@@ -400,15 +413,17 @@
                                     <AuthInput type="password" name="confirmPassword" placeholder="Confirm Password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
                                 )}
                             </div>
-                            {error && <p className="text-center text-sm text-red-600">{error}</p>}
+                            {error && <p className="text-center text-sm text-red-600 mt-4">{error}</p>}
                             <div>
-                                <button type="submit" disabled={loading} className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300">
+                                {/* Reduced py-3 to py-2.5 */}
+                                <button type="submit" disabled={loading} className="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-lg font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 shadow-lg hover:shadow-xl transition duration-200">
                                     {loading ? 'Processing...' : (isLogin ? 'Sign in' : 'Create Account')}
                                 </button>
                             </div>
                         </form>
-                         <div className="text-sm text-center">
-                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">
+                         {/* Reduced mt-6 to mt-5 */}
+                         <div className="text-sm text-center mt-5">
+                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500 transition duration-150">
                                 {isLogin ? 'Don\'t have an account? Sign up' : 'Already have an account? Sign in'}
                             </a>
                         </div>
@@ -1094,6 +1109,38 @@
                 }
             };
 
+            // --- NEW FUNCTION ---
+            // Function to remove a user (with confirmation)
+            const handleRemoveUser = async (targetUid) => {
+                if (!db) return;
+
+                // Safety check: do not allow admin to delete themselves
+                if (targetUid === user.uid) {
+                    setAdminError("You cannot remove yourself.");
+                    return;
+                }
+                
+                // Add a confirmation dialog for safety
+                if (!window.confirm("Are you sure you want to permanently remove this user? This action cannot be undone.")) {
+                    return;
+                }
+
+                setAdminUpdatingId(targetUid);
+                setAdminError('');
+                try {
+                    // Get a reference to the user document and delete it
+                    const userRef = db.collection('users').doc(targetUid);
+                    await userRef.delete();
+                    // The onSnapshot listener will automatically refresh the user list
+                } catch (error) {
+                    console.error("Error removing user:", error);
+                    setAdminError(`Failed to remove user: ${error.message}`);
+                } finally {
+                    setAdminUpdatingId(null);
+                }
+            };
+            // --- END NEW FUNCTION ---
+
             if (user.role !== 'Admin') {
                 return <div className="p-8 text-red-600">You do not have permission to view this page.</div>;
             }
@@ -1124,7 +1171,7 @@
                                                 <select
                                                     value={u.role}
                                                     onChange={(e) => handleRoleChange(u.uid, e.target.value)}
-                                                    disabled={adminUpdatingId === u.uid}
+                                                    disabled={adminUpdatingId === u.route}
                                                     className="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                                                 >
                                                     <option value="Finance Reviewer">Finance Reviewer</option>
@@ -1132,10 +1179,23 @@
                                                 </select>
                                             )}
                                         </td>
-                                        <td className="p-3 text-sm">
-                                            {adminUpdatingId === u.uid && <span className="text-xs text-gray-500">Updating...</span>}
-                                            {u.uid === user.uid && <span className="text-xs text-gray-500">(This is you)</span>}
+                                        
+                                        {/* --- MODIFIED ACTIONS COLUMN --- */}
+                                        <td className="p-3 text-sm whitespace-nowrap space-x-2">
+                                            {u.uid === user.uid ? (
+                                                <span className="text-xs text-gray-500">(This is you)</span>
+                                            ) : (
+                                                <button 
+                                                    onClick={() => handleRemoveUser(u.uid)}
+                                                    disabled={adminUpdatingId === u.uid}
+                                                    className="px-3 py-1 rounded-md text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 transition disabled:bg-gray-100 disabled:text-gray-400"
+                                                >
+                                                    {adminUpdatingId === u.uid ? 'Removing...' : 'Remove'}
+                                                </button>
+                                            )}
                                         </td>
+                                        {/* --- END MODIFIED COLUMN --- */}
+
                                     </tr>
                                 ))}
                             </tbody>

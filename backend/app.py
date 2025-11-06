@@ -28,11 +28,7 @@ logging.info("Tesseract and Poppler are NO longer used in this project.")
 # --- 2. GEMINI (LLM) CONFIGURATION ---
 llm_model = None
 try:
-    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-    print("Gemini API Key configured.:", GEMINI_API_KEY)
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY environment variable not set.")
-    
+   
     genai.configure(api_key="AIzaSyCPHChd7zPV6QwWXOv1Z90WsHzVrXaCXl8")
     generation_config = {
       "temperature": 0.1,

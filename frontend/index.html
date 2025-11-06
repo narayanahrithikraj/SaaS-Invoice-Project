@@ -494,7 +494,7 @@
 
             const handleUpload = async () => {
                 if (!file) return setUploadStatus('Please select a file first.');
-                if (!db || !auth || !user.multiFactor?.user?.uid) return setUploadStatus('Error: Database is not connected.');
+                if (!db || !auth || !user?.uid) return setUploadStatus('Error: Database is not connected.');
                 setIsProcessing(true);
                 setUploadStatus(`Uploading ${file.name}...`);
                 try {
@@ -516,11 +516,11 @@
                         auditLog: [{
                             action: 'Uploaded',
                             user: user.username || user.email,
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            timestamp: new Date() // <-- FIX #1
                         }, {
                             action: 'AI Extraction',
                             user: 'AI (Gemini)',
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            timestamp: new Date() // <-- FIX #2
                         }]
                     };
                     const docRef = await invoicesRef.add(newInvoice);

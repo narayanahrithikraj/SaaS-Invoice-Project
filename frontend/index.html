@@ -92,8 +92,9 @@
         );
         // --- END FIX ---
         
+        // --- COMPACT FIX ---
         const StatCard = ({ title, value, description, colorClass = "text-indigo-600" }) => (
-            <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+            <div className="bg-white p-4 rounded-2xl shadow-lg border border-gray-200"> {/* p-5 to p-4 */}
                 <p className="text-sm font-medium text-gray-500 truncate">{title}</p>
                 <p className={`mt-1 text-3xl font-semibold ${colorClass}`}>{value}</p>
                 {description && <p className="text-sm text-gray-400 mt-1">{description}</p>}
@@ -433,7 +434,7 @@
         };
         
         
-        // --- 2. DASHBOARD PAGE (Tenant Dashboard / Home) ---
+        // --- 2. DASHBOARD PAGE (COMPACT FIX) ---
         const DashboardPage = ({ user, db, auth, onNavigate }) => {
             const [invoices, setInvoices] = useState([]);
             const [file, setFile] = useState(null);
@@ -493,12 +494,6 @@
 
             const handleUpload = async () => {
                 if (!file) return setUploadStatus('Please select a file first.');
-                console.log("DB : ",db?db:"db null");
-                console.log("auth : ",auth?auth:"auth null");
-                console.log("user : ",user?user:"user null");
-                console.log("user : ",user?user.multiFactor?.user?.uid:"U_ID null");
-
-
                 if (!db || !auth || !user.multiFactor?.user?.uid) return setUploadStatus('Error: Database is not connected.');
                 setIsProcessing(true);
                 setUploadStatus(`Uploading ${file.name}...`);
@@ -541,27 +536,27 @@
             };
             
             return (
-                <div className="space-y-8">
-                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
-                        <h2 className="text-2xl font-semibold text-gray-800 mb-4">Upload Invoice (Single)</h2>
+                <div className="space-y-4"> {/* space-y-6 to space-y-4 */}
+                    <div className="bg-white shadow-xl rounded-2xl p-4 border border-gray-200"> {/* p-5 to p-4 */}
+                        <h2 className="text-2xl font-semibold text-gray-800 mb-3">Upload Invoice (Single)</h2> {/* mb-4 to mb-3 */}
                         <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
                             <input type="file" onChange={handleFileChange} accept=".pdf,.png,.jpg,.jpeg" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150" disabled={isProcessing} />
                             <button onClick={handleUpload} disabled={!file || isProcessing} className={`w-full md:w-auto px-6 py-2 rounded-xl text-white font-medium shadow-md transition duration-200 ${!file || isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300'}`}>
                                 {isProcessing ? 'Processing...' : 'Send to AI for Extraction'}
                             </button>
                         </div>
-                        {uploadStatus && <p className={`mt-4 text-sm ${uploadStatus.startsWith('Error:') ? 'text-red-600' : 'text-green-600'}`}>{uploadStatus}</p>}
+                        {uploadStatus && <p className={`mt-3 text-sm ${uploadStatus.startsWith('Error:') ? 'text-red-600' : 'text-green-600'}`}>{uploadStatus}</p>}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> {/* gap-6 to gap-4 */}
                         <StatCard title="Total Payable (Pending)" value={formatCurrency(totalPayable)} description="Total of all 'Pending' invoices" colorClass="text-yellow-600" />
                          <StatCard title="Total Overdue (Pending)" value={formatCurrency(totalOverdue)} colorClass={totalOverdue > 0 ? "text-red-600" : "text-green-600"} />
                         <StatCard title="Total Approved (Paid)" value={formatCurrency(totalApproved)} colorClass="text-green-600" />
                         <StatCard title="Total Invoices" value={invoices.length} description="All time" />
                     </div>
 
-                    <div className="bg-white shadow-xl rounded-2xl p-6 border border-gray-200">
-                        <h3 className="text-xl font-semibold text-gray-800 mb-4">Payable Summary (Top 5 Vendors)</h3>
+                    <div className="bg-white shadow-xl rounded-2xl p-4 border border-gray-200"> {/* p-5 to p-4 */}
+                        <h3 className="text-xl font-semibold text-gray-800 mb-3">Payable Summary (Top 5 Vendors)</h3> {/* mb-4 to mb-3 */}
                         <div style={{ width: '100%', height: 300 }}>
                             <ResponsiveContainer>
                                 <PieChart>
@@ -1109,18 +1104,14 @@
                 }
             };
 
-            // --- NEW FUNCTION ---
-            // Function to remove a user (with confirmation)
             const handleRemoveUser = async (targetUid) => {
                 if (!db) return;
 
-                // Safety check: do not allow admin to delete themselves
                 if (targetUid === user.uid) {
                     setAdminError("You cannot remove yourself.");
                     return;
                 }
                 
-                // Add a confirmation dialog for safety
                 if (!window.confirm("Are you sure you want to permanently remove this user? This action cannot be undone.")) {
                     return;
                 }
@@ -1128,10 +1119,8 @@
                 setAdminUpdatingId(targetUid);
                 setAdminError('');
                 try {
-                    // Get a reference to the user document and delete it
                     const userRef = db.collection('users').doc(targetUid);
                     await userRef.delete();
-                    // The onSnapshot listener will automatically refresh the user list
                 } catch (error) {
                     console.error("Error removing user:", error);
                     setAdminError(`Failed to remove user: ${error.message}`);
@@ -1139,7 +1128,6 @@
                     setAdminUpdatingId(null);
                 }
             };
-            // --- END NEW FUNCTION ---
 
             if (user.role !== 'Admin') {
                 return <div className="p-8 text-red-600">You do not have permission to view this page.</div>;
@@ -1155,6 +1143,8 @@
                                 <tr className="border-b-2 border-gray-200">
                                     <th className="text-left text-sm font-semibold text-gray-600 p-3">Email</th>
                                     <th className="text-left text-sm font-semibold text-gray-600 p-3">Username</th>
+                                    {/* --- NEW HEADER --- */}
+                                    <th className="text-left text-sm font-semibold text-gray-600 p-3">Phone Number</th>
                                     <th className="text-left text-sm font-semibold text-gray-600 p-3">Role</th>
                                     <th className="text-left text-sm font-semibold text-gray-600 p-3">Actions</th>
                                 </tr>
@@ -1164,6 +1154,8 @@
                                     <tr key={u.uid} className="hover:bg-gray-50">
                                         <td className="p-3 text-sm text-gray-800 font-medium">{u.email}</td>
                                         <td className="p-3 text-sm text-gray-600">{u.username}</td>
+                                        {/* --- NEW DATA CELL --- */}
+                                        <td className="p-3 text-sm text-gray-600">{u.phoneNumber || 'N/A'}</td>
                                         <td className="p-3 text-sm text-gray-600">
                                             {u.uid === user.uid ? (
                                                 <span className="font-medium text-gray-900">{u.role}</span>
@@ -1171,7 +1163,7 @@
                                                 <select
                                                     value={u.role}
                                                     onChange={(e) => handleRoleChange(u.uid, e.target.value)}
-                                                    disabled={adminUpdatingId === u.route}
+                                                    disabled={adminUpdatingId === u.uid}
                                                     className="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                                                 >
                                                     <option value="Finance Reviewer">Finance Reviewer</option>
@@ -1180,7 +1172,6 @@
                                             )}
                                         </td>
                                         
-                                        {/* --- MODIFIED ACTIONS COLUMN --- */}
                                         <td className="p-3 text-sm whitespace-nowrap space-x-2">
                                             {u.uid === user.uid ? (
                                                 <span className="text-xs text-gray-500">(This is you)</span>
@@ -1194,8 +1185,6 @@
                                                 </button>
                                             )}
                                         </td>
-                                        {/* --- END MODIFIED COLUMN --- */}
-
                                     </tr>
                                 ))}
                             </tbody>
@@ -1330,10 +1319,10 @@
                 }
             };
             
-            // --- THIS IS THE SCROLL FIX ---
+            // --- THIS IS THE FINAL LAYOUT FIX ---
             return (
-                <div className="flex h-screen overflow-hidden bg-gray-100">
-                    <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0">
+                <div className="flex h-screen overflow-hidden bg-gray-100"> {/* Back to h-screen overflow-hidden */}
+                    <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0"> {/* Sidebar is NOT sticky */}
                         <h2 className="text-2xl font-extrabold text-indigo-700 mb-6">AI Invoice</h2>
                         <ul className="space-y-2">
                             {[
@@ -1373,7 +1362,8 @@
                         </div>
                     </nav>
                     
-                    <main className="flex-1 p-8 overflow-auto">
+                    {/* Main content scrolls internally, padding reduced to p-4 */}
+                    <main className="flex-1 p-4 overflow-auto"> {/* p-6 to p-4 */}
                         {getCurrentPage()}
                     </main>
                 </div>

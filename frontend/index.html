@@ -494,7 +494,14 @@
 
             const handleUpload = async () => {
                 if (!file) return setUploadStatus('Please select a file first.');
+                
+                // ===================================
+                //
+                // THIS IS THE FIXED LINE (Line 580)
+                //
+                // ===================================
                 if (!db || !auth || !user?.uid) return setUploadStatus('Error: Database is not connected.');
+
                 setIsProcessing(true);
                 setUploadStatus(`Uploading ${file.name}...`);
                 try {
@@ -516,11 +523,11 @@
                         auditLog: [{
                             action: 'Uploaded',
                             user: user.username || user.email,
-                            timestamp: new Date() // <-- FIX #1
+                            timestamp: new Date() // <-- This was the *other* fix
                         }, {
                             action: 'AI Extraction',
                             user: 'AI (Gemini)',
-                            timestamp: new Date() // <-- FIX #2
+                            timestamp: new Date() // <-- This was the *other* fix
                         }]
                     };
                     const docRef = await invoicesRef.add(newInvoice);
@@ -798,7 +805,7 @@
                                             </td>
                                         </tr>
                                     );
-                                })}
+D                                })}
                             </tbody>
                         </table>
                     </div>

@@ -6,17 +6,14 @@ import mimetypes  # <-- Added to detect file type
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-# from pdf2image import convert_from_path  # <-- REMOVED
-# from PIL import Image                   # <-- REMOVED
-# import pytesseract                      # <-- REMOVED
 import google.generativeai as genai
 import logging
 from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
-load_dotenv()  # Make sure this is at the top
+load_dotenv() 
 app = Flask(__name__)
-CORS(app)  # Allow requests from your frontend
+CORS(app)  # Allow requests from frontend
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -38,9 +35,6 @@ try:
       "response_mime_type": "application/json",
     }
     
-    # --- IMPORTANT ---
-    # Changed to a model that supports file uploads (multimodal)
-    # Your old model name was invalid.
     llm_model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
         generation_config=generation_config
@@ -73,10 +67,7 @@ def parse_date(date_str, default_date):
     logging.warning(f"Could not parse date: {date_str}. Defaulting.")
     return default_date
 
-# --- REMOVED 'process_file' FUNCTION ---
-# Tesseract/Poppler logic is no longer needed.
-
-def extract_data_from_file(file_path):  # <-- This function is NEW
+def extract_data_from_file(file_path): 
     """
     Uploads the invoice file (PDF/image) to Gemini and extracts structured data.
     """
@@ -136,7 +127,7 @@ def extract_data_from_file(file_path):  # <-- This function is NEW
         logging.info("Sending file to Gemini LLM for extraction...")
         response = llm_model.generate_content(prompt)
         
-        # 4. Parse the response (same as before)
+        # 4. Parse the response 
         json_text = response.text.strip().lstrip("```json").rstrip("```")
         data = json.loads(json_text)
         
@@ -165,7 +156,7 @@ def extract_data_from_file(file_path):  # <-- This function is NEW
     except Exception as e:
         logging.error(f"Error during LLM extraction: {e}")
         error_message = f"AI Error: {e}"
-        # (Error handling logic remains the same)
+
         return {
             "vendorName": "AI Error", "invoiceNumber": "N/A", "invoiceDate": today_date,
             "dueDate": today_date, "subtotal": 0.0, "tax": 0.0, "totalAmount": 0.0,
@@ -194,7 +185,6 @@ def process_invoice():
         return jsonify({"status": "Error", "message": "No selected file"}), 400
 
     if file:
-        # We still need to save the file temporarily to get a path
         filename = file.filename
         
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -203,10 +193,7 @@ def process_invoice():
             logging.info(f"File saved temporarily at {temp_file_path}")
 
             try:
-                # --- THIS IS THE ONLY CHANGE ---
-                # Call the new file-based extraction function
                 extracted_data = extract_data_from_file(temp_file_path)
-                # --- END OF CHANGE ---
                 
                 return jsonify({ "status": "Success", "extractedData": extracted_data }), 200
             except Exception as e:

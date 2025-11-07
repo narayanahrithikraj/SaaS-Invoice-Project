@@ -278,11 +278,10 @@
 
         const AuditLogModal = ({ isOpen, onClose, invoice }) => {
             if (!isOpen || !invoice) return null;
-            const sortedLog = invoice.auditLog ? [...invoice.auditLog].sort((a, b) => {
-                const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(0);
-                const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(0);
-                return dateB - dateA;
-            }) : [];
+            
+            // --- NOTE: Sorting is now best-effort as timestamps were removed ---
+            // We rely on the array order from Firestore.
+            const sortedLog = invoice.auditLog ? [...invoice.auditLog].reverse() : [];
 
             return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
@@ -312,7 +311,8 @@
                                         <div className="flex-1">
                                             <p className="text-sm font-medium text-gray-900">{log.action} by <span className="font-normal text-gray-700">{log.user}</span></p>
                                             <p className="text-sm text-gray-500">
-                                                {formatTimestamp(log.timestamp)}
+                                                {/* Removed timestamp display as it's no longer saved */}
+                                                Action recorded
                                             </p>
                                         </div>
                                     </div>
@@ -376,7 +376,7 @@
                         }
                     }
                 } catch (err) {
-                    // --- FIX 5: Check for specific login error codes ---
+                    // --- FIX: Check for specific login error codes ---
                     if (isLogin && (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential')) {
                         setError("you have entered wrong password, try again!");
                     } else {
@@ -524,19 +524,17 @@
                         invoiceDate: parsedDate,
                         dueDate: parsedDueDate,
                         
-                        // --- FIX 1: Add the default status ---
+                        // --- FIX: Add the default status ---
                         status: 'Pending', 
-
+                        
                         auditLog: [{
                             action: 'Uploaded',
-                            user: user.username || user.email,
-                            // --- FIX 2: Add timestamp for sorting ---
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            user: user.username || user.email
+                            // --- REMOVED TIMESTAMP ---
                         }, {
                             action: 'AI Extraction',
-                            user: 'AI (Gemini)',
-                            // --- FIX 2: Add timestamp for sorting ---
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                            user: 'AI (Gemini)'
+                            // --- REMOVED TIMESTAMP ---
                         }]
                     };
                     const docRef = await invoicesRef.add(newInvoice);
@@ -706,9 +704,8 @@
             const addAuditLog = (batch, invoiceId, action) => {
                 const logEntry = { 
                     action: action, 
-                    user: user.username || user.email,
-                    // --- FIX 3: Add timestamp ---
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp() 
+                    user: user.username || user.email
+                    // --- REMOVED TIMESTAMP ---
                 };
                 const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
                 batch.update(invoiceRef, { auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
@@ -829,7 +826,6 @@
 
 
         // --- 4. INVOICE DETAIL PAGE (NEW) ---
-        // --- 4. INVOICE DETAIL PAGE (NEW) ---
         const InvoiceDetailPage = ({ user, db, auth, invoiceId, onNavigate }) => {
             const [invoice, setInvoice] = useState(null);
             const [loading, setLoading] = useState(true);
@@ -909,9 +905,8 @@
                 const logEntry = {
                     action: action, 
                     details: details, 
-                    user: user.username || user.email,
-                    // --- FIX 4: Add timestamp ---
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    user: user.username || user.email
+                    // --- REMOVED TIMESTAMP ---
                 };
                 const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
                 return invoiceRef.update({ auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
@@ -1267,7 +1262,6 @@
                 }
             }, []); // Empty array means this runs only once on mount
 
-            // FIX: This useEffect now waits for firebaseServices to be set
             // FIX: This useEffect now waits for firebaseServices to be set
             useEffect(() => {
                 const { db, auth } = firebaseServices;

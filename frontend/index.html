@@ -24,7 +24,7 @@
         const { useState, useEffect, useMemo, useCallback } = React;
         const { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } = Recharts;
 
-        // --- CONFIGURATION ---
+        // --- FIREBASE CONFIGURATION ---
         const firebaseConfig = {
             apiKey: "AIzaSyA_j1t63EnHswlrUBMb9mbF31JuBBBXPM4",
             authDomain: "bca-final-demo.firebaseapp.com",
@@ -36,13 +36,6 @@
 
         const appId = firebaseConfig.projectId;
 
-        // --- NOTE: NO GLOBAL FIREBASE VARS HERE ---
-
-        // ===================================================================
-        //
-        // IMPORTANT: Set this to your LIVE Render URL when deploying
-        // 
-        // ===================================================================
         const BACKEND_API_URL = 'https://ai-invoice-backend-4qwa.onrender.com/process-invoice'; // <-- LIVE URL
         // const BACKEND_API_URL = 'http://127.0.0.1:5000/process-invoice'; // <-- Local dev URL
 
@@ -82,7 +75,7 @@
             );
         };
 
-        // --- FIX: MOVED AuthInput HERE ---
+        // --- MOVED AuthInput HERE ---
         const AuthInput = ({ type, placeholder, value, onChange, name }) => (
             <div>
                 <label htmlFor={name} className="sr-only">{placeholder}</label>
@@ -94,9 +87,8 @@
                 />
             </div>
         );
-        // --- END FIX ---
 
-        // --- COMPACT FIX ---
+
         const StatCard = ({ title, value, description, colorClass = "text-indigo-600" }) => (
             <div className="bg-white p-4 rounded-2xl shadow-lg border border-gray-200"> {/* p-5 to p-4 */}
                 <p className="text-sm font-medium text-gray-500 truncate">{title}</p>
@@ -279,7 +271,6 @@
         const AuditLogModal = ({ isOpen, onClose, invoice }) => {
             if (!isOpen || !invoice) return null;
             
-            // --- NOTE: Sorting is now best-effort as timestamps were removed ---
             // We rely on the array order from Firestore.
             const sortedLog = invoice.auditLog ? [...invoice.auditLog].reverse() : [];
 
@@ -327,7 +318,7 @@
             );
         };
 
-        // --- 1. AUTHENTICATION PAGE (COMPACT UI FIX) ---
+        // --- 1. AUTHENTICATION PAGE ---
         const AuthForm = ({ db, auth }) => {
             const [isLogin, setIsLogin] = useState(true);
             const [error, setError] = useState('');
@@ -376,11 +367,9 @@
                         }
                     }
                 } catch (err) {
-                    // --- FIX: Check for specific login error codes ---
                     if (isLogin && (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential')) {
                         setError("you have entered wrong password, try again!");
                     } else {
-                        // Fallback for all other errors (like signup errors, user-not-found, etc.)
                         setError(err.message);
                     }
                 } finally {
@@ -391,8 +380,6 @@
             // --- AuthInput component is now defined globally above ---
 
             return (
-                // We can now use items-center again, as the card will be shorter
-                // Reduced py-12 to py-8 to give a bit more space
                 <div className="min-h-screen flex justify-center items-center bg-gradient-to-br from-indigo-50 to-purple-100 py-8 px-4 sm:px-6 lg:px-8">
                     {/* Reduced p-8 md:p-10 to p-8 to save space */}
                     <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-2xl border border-gray-200">
@@ -442,7 +429,7 @@
         };
 
 
-        // --- 2. DASHBOARD PAGE (COMPACT FIX) ---
+        // --- 2. DASHBOARD PAGE ---
         const DashboardPage = ({ user, db, auth, onNavigate }) => {
             const [invoices, setInvoices] = useState([]);
             const [file, setFile] = useState(null);
@@ -523,18 +510,15 @@
                         uploadDate: firebase.firestore.FieldValue.serverTimestamp(),
                         invoiceDate: parsedDate,
                         dueDate: parsedDueDate,
-                        
-                        // --- FIX: Add the default status ---
+
                         status: 'Pending', 
                         
                         auditLog: [{
                             action: 'Uploaded',
                             user: user.username || user.email
-                            // --- REMOVED TIMESTAMP ---
                         }, {
                             action: 'AI Extraction',
                             user: 'AI (Gemini)'
-                            // --- REMOVED TIMESTAMP ---
                         }]
                     };
                     const docRef = await invoicesRef.add(newInvoice);
@@ -705,7 +689,6 @@
                 const logEntry = { 
                     action: action, 
                     user: user.username || user.email
-                    // --- REMOVED TIMESTAMP ---
                 };
                 const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
                 batch.update(invoiceRef, { auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
@@ -825,7 +808,7 @@
         };
 
 
-        // --- 4. INVOICE DETAIL PAGE (NEW) ---
+        // --- 4. INVOICE DETAIL PAGE ---
         const InvoiceDetailPage = ({ user, db, auth, invoiceId, onNavigate }) => {
             const [invoice, setInvoice] = useState(null);
             const [loading, setLoading] = useState(true);
@@ -906,7 +889,6 @@
                     action: action, 
                     details: details, 
                     user: user.username || user.email
-                    // --- REMOVED TIMESTAMP ---
                 };
                 const invoiceRef = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('invoices').doc(invoiceId);
                 return invoiceRef.update({ auditLog: firebase.firestore.FieldValue.arrayUnion(logEntry) });
@@ -1036,7 +1018,7 @@
         };
 
 
-        // --- 5. REPORTS PAGE (NEW) ---
+        // --- 5. REPORTS PAGE ---
         const ReportsPage = ({ user, db, auth }) => {
             const [invoices, setInvoices] = useState([]);
             useEffect(() => {
@@ -1237,16 +1219,15 @@
 
 
         // --- 7. MAIN APP COMPONENT (ROUTER) ---
-        // --- THIS SECTION IS FIXED ---
         const App = () => {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
-            // FIX: Initialize state as null
+            // Initialize state as null
             const [firebaseServices, setFirebaseServices] = useState({ db: null, auth: null });
 
             const [route, setRoute] = useState(window.location.hash || '#login');
 
-            // FIX: Use one useEffect to initialize Firebase ONCE
+            // Use one useEffect to initialize Firebase ONCE
             useEffect(() => {
                 try {
                     // Initialize Firebase *here* and only here.
@@ -1262,7 +1243,7 @@
                 }
             }, []); // Empty array means this runs only once on mount
 
-            // FIX: This useEffect now waits for firebaseServices to be set
+            // This useEffect now waits for firebaseServices to be set
             useEffect(() => {
                 const { db, auth } = firebaseServices;
 
@@ -1274,13 +1255,13 @@
                     return;
                 }
 
-                const unsubscribe = auth.onAuthStateChanged(async (userAuth) => { // Renamed to userAuth
+                const unsubscribe = auth.onAuthStateChanged(async (userAuth) => {
                     if (userAuth) {
                         const userRef = db.collection('users').doc(userAuth.uid);
                         const doc = await userRef.get();
                         if (doc.exists) {
                             const userData = doc.data();
-                            // --- THIS IS THE FIX ---
+
                             // Explicitly create the state object
                             setUser({
                                 uid: userAuth.uid,
@@ -1297,7 +1278,7 @@
                                     username: newUsername,
                                     role: 'Finance Reviewer',
                                 });
-                                // --- THIS IS THE FIX ---
+
                                 setUser({
                                     uid: userAuth.uid,
                                     email: userAuth.email,
@@ -1374,7 +1355,6 @@
                 }
             };
 
-            // --- THIS IS THE FINAL LAYOUT FIX ---
             return (
                 <div className="flex h-screen overflow-hidden bg-gray-100"> {/* Back to h-screen overflow-hidden */}
                     <nav className="w-64 bg-white shadow-lg p-4 flex flex-col flex-shrink-0"> {/* Sidebar is NOT sticky */}

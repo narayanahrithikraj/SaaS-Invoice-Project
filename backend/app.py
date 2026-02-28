@@ -2,7 +2,7 @@ import os
 import re
 import tempfile
 import json
-import mimetypes  # <-- Added to detect file type
+import mimetypes 
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
